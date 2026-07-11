@@ -1,0 +1,4 @@
+requests>=2.31
+PyYAML>=6.0        # config.yaml only; the datasets are all CSV
+tqdm>=4.66
+python-dotenv>=1.0

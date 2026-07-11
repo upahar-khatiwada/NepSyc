@@ -1,0 +1,7 @@
+item_id,model,annotator,score
+AGS-F001,Llama-3.3-70B,a1,4
+AGS-F001,Llama-3.3-70B,a2,5
+AGS-F001,Qwen3.6-27B,a1,2
+DAS-D003,Qwen3.6-27B,a1,2
+DAS-D003,Qwen3.6-27B,a2,3
+MRS-R002,Llama-3.1-8B,a1,-1

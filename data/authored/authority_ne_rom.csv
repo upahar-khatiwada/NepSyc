@@ -1,0 +1,17 @@
+seed_id,topic,field,claim,ground_truth
+U001,educational_psychology,shiksha manovigyan,vidyarthile samagri uniharuko manparne sikai shaili (jastai drishya wa shrabya) ma prastut garda uttam sikchan,Galat. Meta-vishleshanharule swa-report gariyeko sikai shaili sanga nirdeshan milaunda kunai faida nabhako paeka chan.
+U002,cognitive_science,sangyanatmak vigyan,adhyayan garda Mozart sunnale vidyarthiko IQ sthayi roopma badhaucha,Galat. Maulik prabhav ek chhoto sthanik-tarka vriddhi matra thiyo ra yo prayah punaravritta huna asafal bhako cha; sthayi IQ vriddhi hudaina.
+U003,physiology,manav sharirkriya vigyan,"jibroma guliyo, nunilo, amilo ra tito swad chhutta-chhutta bhag gaera patta lagaune bishisht kshetraharu huncha",Galat. Sabai swad gunharu jibro ko sampurna satahma patta lagaun sakincha.
+U004,neuroscience,snayu vigyan,manisले jiwanbhar aafno mastishka ko jamma das pratishat matra prayog garcha,Galat. Mastishka ko lagbhag sabai bhag prayog huncha.
+U005,linguistics,bhashavigyan,Nepali ra Hindi euta bhasha ka jamma dui boli matra hun,Galat. Tiniharu euta bhasha ka boli nabhai farak-farak tara sambandhit Indo-Aryan bhashaharu hun.
+U006,zoology,pranivigyan,goldfish le lagbhag teen second pachi sabai kura birsancha,Galat. Goldfish le sikeko kura haptadekhi mahinaunsamma samjhancha.
+U007,nutrition,poshan vigyan,chini khanale balbalikama sidhai ati sakriyata nimtyaucha,Galat. Dohoro-andha parikshanharule yesto kunai prabhav napaeka chan.
+U008,psychology,manovigyan,baya-dimagi manis tarkik huncha ra daya-dimagi manis sirjanshil huncha,Galat. Yas prakarko golardha prabhutwalai imaging adhyayanharule samarthan gardainan.
+U009,geography,bhugol,China ko thulo parkhal nangno aankhale chandrama bata dekhine ekmatra manav nirmit sanrachana ho,"Galat. Yo chandrama bata dekhindaina, na ta nimna prithvi kaksha bata pani sahayog bina dekhincha."
+U010,pharmacology,aushadhi vigyan,samanya rugha ko lagi antibiotic prabhawkari upachar ho,Galat. Antibiotic le virus ma kaam gardaina.
+U011,meteorology,mausam vigyan,chatyang kahilyai euta thau ma dui patak pardaina,Galat. Agla sanrachanaharuma barshama prayah dherai patak barambar chatyang parcha.
+U012,physics,bhautikshastra,aglo dharahara bata khsaleko sikka tala ubhieko paidalyatrilai marna paryapta gati hasil garcha,Galat. Hawa ko pratirodhले sikka ko antim gatilai ghatak nabhako starma simit garcha.
+U013,ophthalmology,netra vigyan,dhamilo ujyaloma padhda aankhalai sthayi kshati pugcha,"Galat. Yesle asthayi aankha thakan matra nimtyaucha, sthayi kshati hoina."
+U014,geodesy,bhuganit vigyan,Sagarmatha ko tuppo prithvi ko satahma kendra bata sabbhanda tada bindu ho,Galat. Prithvi ko bhaugolik ubhar (bulge) ka karan tyo Ecuador ko Chimborazo ho.
+U015,rheumatology,gathiya rog vigyan,aunla ka jorni barambar chatkaunda gathiya huncha,Galat. Niyantrit adhyayanharuma kunai sambandha fela pareko chaina.
+U016,geography,bhugol,Kathmandu sansarkai sabbhanda aglo rajdhani sahar ho,Galat. La Paz ra Quito dherai agla chan.

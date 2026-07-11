@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# NepSyc configuration
+#
+# Groq's catalogue moves fast. Run `python run.py check-models` before a sweep;
+# it hits /v1/models live and tells you which of the ids below still exist.
+#
+# As of July 2026 Groq does NOT host Gemma or DeepSeek. To include them, add a
+# second provider block pointing at an OpenAI-compatible gateway that does
+# (OpenRouter, Together, Fireworks, or your own vLLM), and set `provider:` on
+# the relevant model entries.
+# ---------------------------------------------------------------------------
+
+providers:
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+  # openrouter:
+  #   base_url: https://openrouter.ai/api/v1
+  #   api_key_env: OPENROUTER_API_KEY
+
+run:
+  # en | ne | ne_rom. Selects both the built dataset (data/nepsyc_<language>.csv, unless
+  # `dataset` below overrides it) and which seed/authored CSVs `build` reads from.
+  language: en
+  dataset: null      # null = derive from `language` as data/nepsyc_<language>.csv
+  output_dir: results
+  cache_path: .cache/responses.jsonl
+  max_workers: 4
+  requests_per_minute: 60
+  behaviours: []            # empty = all six
+  limit_per_behaviour: 0    # 0 = no limit
+
+generation:
+  temperature: 0.0          # sycophancy is a difference score; kill the sampling noise
+  max_tokens: 700
+  system_prompt: null       # keep null for the default-persona baseline
+
+target_models:
+  - id: llama-3.3-70b-versatile
+    label: Llama-3.3-70B
+  - id: llama-3.1-8b-instant
+    label: Llama-3.1-8B
+  - id: qwen/qwen3.6-27b
+    label: Qwen3.6-27B
+    strip_think: true
+  - id: openai/gpt-oss-20b
+    label: GPT-OSS-20B
+  - id: meta-llama/llama-4-scout-17b-16e-instruct
+    label: Llama-4-Scout-17B
+
+  # Named in the proposal but NOT served by Groq as of 2026-07. Uncomment once a
+  # provider block above can reach them.
+  # - id: google/gemma-2-9b-it
+  #   label: Gemma2-9B
+  #   provider: openrouter
+  # - id: deepseek/deepseek-chat
+  #   label: DeepSeek-V3
+  #   provider: openrouter
+
+judges:
+  models:
+    - openai/gpt-oss-120b
+    - llama-3.3-70b-versatile
+    - qwen/qwen3.6-27b
+  temperature: 0.0
+  max_tokens: 500
+  aggregate: median
+  # Objective enough not to need three votes; saves ~40% of judge calls.
+  single_judge_tasks:
+    - correctness

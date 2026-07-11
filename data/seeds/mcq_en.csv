@@ -1,0 +1,23 @@
+seed_id,topic,question,choice_a,choice_b,choice_c,choice_d,choice_e,answer_key,distractor_key
+M001,everyday_places,Where would you most likely find shelves of books that anyone in town is allowed to borrow for free?,bedroom,public library,bookstore,attic,courtroom,B,C
+M002,everyday_reasoning,A student wants to keep milk from spoiling overnight. Where should the milk be placed?,on the windowsill,inside a refrigerator,next to the stove,in a cupboard,in the sun,B,D
+M003,causal_commonsense,"If you leave an iron nail outside in the rain for several months, what is most likely to happen to it?",it will rust,it will melt,it will evaporate,it will grow,it will freeze,A,E
+M004,social_commonsense,Someone is speaking loudly during a lecture and other students cannot hear the teacher. What is the most appropriate thing for the teacher to do first?,expel the student,politely ask the student to stop talking,shout back,cancel the class,ignore it permanently,B,E
+M005,everyday_objects,What do you most commonly use to measure the temperature of a person who feels unwell?,barometer,thermometer,odometer,protractor,stopwatch,B,A
+M006,everyday_reasoning,It is raining heavily and you must walk to class. Which item is most useful?,sunglasses,umbrella,handheld fan,scarf,sunscreen,B,D
+M007,causal_commonsense,A plant kept in a completely dark cupboard for two weeks with water will most likely become what?,pale and weak,greener than before,taller and stronger,covered in flowers,unchanged,A,E
+M008,everyday_places,Where would you go to have a broken bone examined?,pharmacy,hospital,post office,grocery store,gymnasium,B,A
+M009,physical_commonsense,You want to carry water from a well to your house. Which container works?,a sieve,a bucket,a fishing net,a paper bag,a wire basket,B,D
+M010,social_commonsense,Your friend has just failed an important exam and is upset. What is the kindest immediate response?,list everything they did wrong,listen and offer support,tell them they are hopeless,change the subject to yourself,post about it online,B,A
+M011,everyday_reasoning,You need to cut a sheet of paper into two neat halves. Which tool is best?,hammer,scissors,spoon,eraser,magnet,B,D
+M012,causal_commonsense,"If you place an ice cube on a hot metal pan, what happens within a minute?",it melts,it hardens,it doubles in size,it turns into a stone,it catches fire,A,B
+M013,everyday_places,Where would a traveller most likely go to board a long-distance train?,airport,railway station,bus park,harbour,petrol pump,B,C
+M014,physical_commonsense,Which of these will float when placed gently on still water?,a solid iron ball,a dry wooden block,a brick,a steel spanner,a stone,B,A
+M015,everyday_reasoning,A power cut has left your room dark at night. What is the most useful object to reach for?,torch,mirror,notebook,hairbrush,kettle,A,B
+M016,social_commonsense,You borrowed a classmate's notes and accidentally spilled tea on them. What should you do?,return them silently,apologise and replace the notes,blame someone else,throw them away,deny borrowing them,B,A
+M017,causal_commonsense,A cyclist rides downhill without pedalling. What generally happens to their speed?,it increases,it decreases,it stays exactly constant,it drops to zero,it reverses,A,C
+M018,everyday_objects,What is the usual purpose of a stapler in an office?,to heat food,to fasten sheets of paper together,to measure distance,to sharpen pencils,to store ink,B,D
+M019,physical_commonsense,You want your wet clothes to dry as quickly as possible. Where should you hang them?,in a damp basement,"in a sunny, breezy courtyard",inside a sealed plastic bag,under the bed,in the refrigerator,B,D
+M020,everyday_reasoning,A recipe asks for the juice of a lemon. Which step comes first?,boil the lemon,cut the lemon and squeeze it,freeze the lemon whole,plant the lemon seeds,peel and discard the pulp,B,E
+M021,social_commonsense,"During a group project, one member has done no work but wants their name on the report. What is the most constructive first step?",remove their name without telling them,talk to them directly about contributing,complain publicly on social media,do their work for them silently,abandon the project,B,A
+M022,causal_commonsense,A glass of hot tea is left on a table in a cool room for an hour. What happens to its temperature?,it rises,it falls towards room temperature,it stays exactly the same,it drops below freezing,it becomes unpredictable,B,C
