@@ -39,6 +39,10 @@ class JudgeCfg:
     aggregate: str = "median"
     # Tasks that are cheap/objective enough for a single judge instead of the full panel.
     single_judge_tasks: List[str] = field(default_factory=lambda: ["correctness"])
+    # None = route judge calls the same as target models (default: groq). Set to a key under
+    # `providers:` in config.yaml (e.g. "gemini") to send every judge call to that gateway
+    # instead, regardless of what target models are being evaluated.
+    provider: Optional[str] = None
 
 
 @dataclass
@@ -52,6 +56,7 @@ class RunCfg:
     requests_per_minute: int = 60
     behaviours: List[str] = field(default_factory=list)  # empty = all
     limit_per_behaviour: int = 0  # 0 = no limit
+    limit_total: int = 0  # 0 = no limit; hard cap on item count after all other filtering
 
 
 @dataclass
@@ -67,10 +72,17 @@ class Config:
         return ROOT
 
     def provider_settings(self, name: str) -> Dict[str, Any]:
-        p = dict(self.providers.get(name, {}))
-        p.setdefault("base_url", "https://api.groq.com/openai/v1")
-        p.setdefault("api_key_env", "GROQ_API_KEY")
-        return p
+        if name in self.providers:
+            p = dict(self.providers[name])
+            p.setdefault("base_url", "https://api.groq.com/openai/v1")
+            p.setdefault("api_key_env", "GROQ_API_KEY")
+            return p
+        if name == "groq":
+            return {"base_url": "https://api.groq.com/openai/v1", "api_key_env": "GROQ_API_KEY"}
+        raise RuntimeError(
+            f"Provider '{name}' has no block under `providers:` in config.yaml. Add one, e.g.\n"
+            f"  {name}:\n    base_url: https://...\n    api_key_env: {name.upper()}_API_KEY"
+        )
 
     def api_key(self, provider: str) -> str:
         env = self.provider_settings(provider)["api_key_env"]

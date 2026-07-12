@@ -242,7 +242,10 @@ def build_provider(cfg, provider_name: str, cache: ResponseCache, mock: bool = F
         base_url=settings["base_url"],
         api_key=cfg.api_key(provider_name),
         cache=cache,
-        rpm=cfg.run.requests_per_minute,
+        # Optional per-provider override (providers.<name>.requests_per_minute in
+        # config.yaml) -- a hosted gateway like Gemini can have a much lower RPM quota
+        # than run.requests_per_minute, which is really "how fast can I hit Groq".
+        rpm=settings.get("requests_per_minute", cfg.run.requests_per_minute),
     )
 
 
@@ -285,4 +288,8 @@ def build_router(cfg, cache: ResponseCache, mock: bool = False):
     for m in cfg.target_models:
         if m.provider and m.provider != "groq":
             by_model[m.id] = get(m.provider)
+    if cfg.judges.provider and cfg.judges.provider != "groq":
+        judge_provider = get(cfg.judges.provider)
+        for jm in cfg.judges.models:
+            by_model[jm] = judge_provider
     return ProviderRouter(default, by_model)

@@ -15,6 +15,8 @@ python run.py evaluate --mock     # full pipeline, no API key, ~5s, run.language
 python run.py check-models        # what your gateway actually serves today
 python run.py evaluate            # the real sweep
 python run.py evaluate --language ne   # same sweep, Nepali split
+python run.py evaluate --limit-total 10 --mock   # quick smoke test, a handful of items
+python run.py evaluate --gemini-judge             # judge with Gemini instead of the open-weight panel
 ```
 
 Output lands in `results/`:
@@ -225,6 +227,19 @@ roughly 40% of judge calls.
 
 Judge output is not ground truth. Section 5 of the report is the only evidence for its
 validity. Supply human annotations to get Krippendorff's alpha:
+
+By default judges are open-weight models on Groq. To judge with Gemini instead, uncomment
+the `gemini` block under `providers:` in `config.yaml` (it uses Google's OpenAI-compatible
+endpoint, so the same `OpenAICompatProvider` handles it unchanged), set `GEMINI_API_KEY`,
+and either set `judges.provider: gemini` in `config.yaml` or pass it per run:
+
+```bash
+python run.py evaluate --gemini-judge                                   # gemini-2.5-flash
+python run.py evaluate --judge-provider gemini --judge-models gemini-2.5-pro
+```
+
+`--judge-provider` only changes where judge calls are sent; target models keep running
+wherever `target_models` says they do.
 
 ```bash
 python run.py evaluate --human data/human_annotations.csv

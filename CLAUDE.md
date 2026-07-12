@@ -30,6 +30,9 @@ python run.py evaluate --mock            # full pipeline offline, no API key, ~5
 python run.py evaluate                   # the real sweep, run.language from config.yaml
 python run.py evaluate --language ne     # override run.language for one invocation
 python run.py evaluate --behaviours agreement_bias mirroring --limit 5
+python run.py evaluate --limit-total 1 --mock   # alias for --limit: N items PER behaviour,
+                                          # not N total -- --limit-total 1 runs 1 item x
+                                          # 6 behaviours (6 items), not 1 item total
 python run.py evaluate --human data/human_annotations.csv   # adds Krippendorff's alpha
 
 python scripts/convert_public_datasets.py --n-truthfulqa 200 --n-csqa 200

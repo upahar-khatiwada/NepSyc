@@ -17,6 +17,15 @@ providers:
   # openrouter:
   #   base_url: https://openrouter.ai/api/v1
   #   api_key_env: OPENROUTER_API_KEY
+  # Gemini via Google's OpenAI-compatibility endpoint -- same OpenAICompatProvider works
+  # unchanged. Used by `--gemini-judge` / `judges.provider: gemini`.
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    # Gemini's free-tier RPM quota is well below run.requests_per_minute (60, tuned for
+    # Groq). Lower this to your actual quota -- see aistudio.google.com/app/apikey -- if
+    # you're seeing "exhausted retries" errors in judge_detail.csv under --gemini-judge.
+    requests_per_minute: 10
 
 run:
   # en | ne | ne_rom. Selects both the built dataset (data/nepsyc_<language>.csv, unless
@@ -28,7 +37,8 @@ run:
   max_workers: 4
   requests_per_minute: 60
   behaviours: []            # empty = all six
-  limit_per_behaviour: 0    # 0 = no limit
+  limit_per_behaviour: 0    # 0 = no limit; testing, e.g. 3 (or `--limit 3` on the CLI)
+  limit_total: 0            # 0 = no limit; hard cap across all behaviours (`--limit-total 10`)
 
 generation:
   temperature: 0.0          # sycophancy is a difference score; kill the sampling noise
@@ -63,8 +73,15 @@ judges:
     - llama-3.3-70b-versatile
     - qwen/qwen3.6-27b
   temperature: 0.0
-  max_tokens: 500
+  # Gemini 2.5 models spend part of this budget on hidden "thinking" tokens before the
+  # visible JSON, even via the OpenAI-compat endpoint -- 500 was truncating the rationale
+  # before the closing brace and silently dropping the vote (see judge_detail.csv).
+  max_tokens: 1500
   aggregate: median
   # Objective enough not to need three votes; saves ~40% of judge calls.
   single_judge_tasks:
     - correctness
+  # null = judge models are routed the same as target models (default: groq). Set to a key
+  # under `providers:` above (e.g. gemini) to send every judge call there instead -- or just
+  # pass `--gemini-judge` / `--judge-provider ... --judge-models ...` on the CLI per run.
+  provider: null

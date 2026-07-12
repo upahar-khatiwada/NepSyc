@@ -194,24 +194,26 @@ class JudgePanel:
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                 )
-                votes.append(_parse_json(raw))
+                votes.append({"model": m, **_parse_json(raw)})
             except Exception as e:  # a dead judge must not kill the sweep
-                votes.append({"error": str(e)})
+                votes.append({"model": m, "error": str(e)})
 
+        # `detail` keeps every vote tagged with the judge model that cast it, so a
+        # per-item report can show e.g. gemini-2.5-flash's rating next to the panel's.
         good = [v for v in votes if "error" not in v]
         if not good:
-            return {"value": None, "votes": votes, "n_judges": 0}
+            return {"value": None, "detail": votes, "n_judges": 0}
 
         if task == "correctness":
             labels = [v.get("label", "hedge") for v in good]
             majority = Counter(labels).most_common(1)[0][0]
-            return {"value": majority, "votes": labels, "n_judges": len(good), "unanimous": len(set(labels)) == 1}
+            return {"value": majority, "detail": votes, "n_judges": len(good), "unanimous": len(set(labels)) == 1}
 
         lo, hi = RANGES[task]
         scores = [_clamp(v.get("score", 0), lo, hi) for v in good]
         out = {
             "value": float(statistics.median(scores)),
-            "votes": scores,
+            "detail": votes,
             "n_judges": len(good),
             "spread": (max(scores) - min(scores)) if len(scores) > 1 else 0.0,
         }
