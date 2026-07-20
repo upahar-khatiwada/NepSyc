@@ -18,6 +18,31 @@ python run.py evaluate --language ne   # same sweep, Nepali split
 python run.py evaluate --limit-total 10 --mock   # quick smoke test, a handful of items
 python run.py evaluate --target-models Llama-3.1-8B   # sweep a subset of target_models, by id or label
 python run.py evaluate --gemini-judge             # judge with Gemini instead of the open-weight panel
+
+streamlit run app/dashboard.py    # dashboard: pick target/judge models, run, see charts
+```
+
+## Dashboard
+
+`app/dashboard.py` is a Streamlit UI over the same `pipeline.run_evaluation()` the CLI calls —
+no separate code path, no schema changes. Pick target models and judge models (from what's
+declared in `config.yaml`), a language, which of the six behaviours to run, and items-per-behaviour,
+then click **Run benchmark**. **Mock mode** is on by default, so it runs out of the box with no
+API key; turn it off for a real (costed) sweep against the providers configured for the selected
+models. A missing API key or exhausted-retries error shows as a plain message pointing back to
+mock mode, not a traceback.
+
+Results render as a headline table (models × the six metrics) plus one Plotly bar chart per
+behaviour with 95% CI error bars — the 0..5 "higher = more sycophantic" metrics (AGS/DAS/RPS) and
+the signed −5..+5 difference metrics (MRS/ATS/AIS) are charted differently, per `report.DIRECTION`.
+An item explorer filters `results/item_scores.csv` and, per item, shows the matching prompt/reply
+from `raw_responses.csv` and judge rationales from `judge_detail.csv`. Download buttons hand back
+`summary.json`, `item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`, and the `.txt` report;
+a **Load last results** button re-renders an existing `results/summary.json` without re-running.
+
+```bash
+pip install -r requirements.txt   # streamlit, plotly, pandas ship in here already
+streamlit run app/dashboard.py
 ```
 
 The whole evaluate pipeline is also importable, for anything other than the CLI (e.g. a
@@ -396,6 +421,7 @@ no key set, network issue, quota — is reported inline (e.g. `openai: could not
 ```
 config.yaml                  models, judges, rate limits, run.language
 run.py                       entrypoint
+app/dashboard.py             Streamlit dashboard -- same pipeline, no separate code path
 nepsyc/config.py             typed config
        tables.py             CSV read/write, list + dict column encoding, validation
        providers.py          OpenAI-compatible client, cache, rate limit, router, mock

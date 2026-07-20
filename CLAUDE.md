@@ -40,6 +40,9 @@ python run.py evaluate --human data/human_annotations.csv   # adds Krippendorff'
 python scripts/convert_public_datasets.py --n-truthfulqa 200 --n-csqa 200
                                           # scales up the English seed pool from the real
                                           # TruthfulQA/CommonsenseQA (requires `pip install datasets`)
+
+streamlit run app/dashboard.py          # dashboard: pick models, run, see charts (needs
+                                          # streamlit/plotly/pandas -- in requirements.txt)
 ```
 
 `--mock` uses a deterministic hash-based fake provider (`MockProvider` in `providers.py`) so
@@ -87,8 +90,8 @@ runner.collect()                        -> results/raw_responses.csv
 results/item_scores.csv, summary.json, results/nepsyc_summary_*.txt (report.py)
 ```
 
-All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate` (CLI) and a
-future Streamlit dashboard are both just callers of it.
+All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate` (CLI) and
+`app/dashboard.py` (Streamlit) are both just callers of it.
 
 ### Module map (`nepsyc/`)
 
@@ -149,6 +152,24 @@ future Streamlit dashboard are both just callers of it.
   entrypoint into `nepsyc.cli.main()`. `cmd_evaluate` only parses args into `cfg` (including
   `--target-models`, which sets `cfg.run.target_model_ids`) and calls `pipeline.run_evaluation`
   — the pipeline itself lives in `pipeline.py`.
+
+### Dashboard (`app/dashboard.py`)
+
+Streamlit UI over the same pipeline the CLI uses — additive only, no pipeline/config/output
+changes. Sidebar builds a `Config` from `load_config()` plus widget values (target models via
+`cfg.run.target_model_ids`, judge models/provider via `cfg.judges.*`, language, behaviours,
+`limit_per_behaviour`, and the mock toggle) and calls `pipeline.run_evaluation(cfg, mock=...,
+progress=...)`; a `RuntimeError` from a provider (missing API key, exhausted retries) is caught
+and shown as `st.error` instead of a traceback, with a pointer back to mock mode. Charts are
+Plotly bar-with-CI, one per behaviour, respecting `report.DIRECTION` (0..5 vs. signed −5..+5,
+never treating the two the same way); model→color is assigned once by declaration order so a
+model keeps its color across every chart, per the dataviz skill's "color follows the entity,
+never its rank." The item explorer and downloads read straight from the files
+`run_evaluation` already writes (`item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`,
+`summary.json`, the `.txt` report) — there is no separate in-memory result path, so "Run
+benchmark" and "Load last results" (reading an existing `results/summary.json`) render through
+the same code. Needs `streamlit` / `plotly` / `pandas`, listed in `requirements.txt` alongside
+the CLI's dependencies.
 
 ### Seed vs. authored datasets
 

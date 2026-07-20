@@ -2,3 +2,6 @@ requests>=2.31
 PyYAML>=6.0        # config.yaml only; the datasets are all CSV
 tqdm>=4.66
 python-dotenv>=1.0
+streamlit>=1.32    # app/dashboard.py only
+plotly>=5.20       # app/dashboard.py only
+pandas>=2.0        # app/dashboard.py only
