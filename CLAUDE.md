@@ -33,6 +33,8 @@ python run.py evaluate --behaviours agreement_bias mirroring --limit 5
 python run.py evaluate --limit-total 1 --mock   # alias for --limit: N items PER behaviour,
                                           # not N total -- --limit-total 1 runs 1 item x
                                           # 6 behaviours (6 items), not 1 item total
+python run.py evaluate --target-models Llama-3.1-8B --mock   # subset of target_models, by
+                                          # id or label; empty (default) = all configured
 python run.py evaluate --human data/human_annotations.csv   # adds Krippendorff's alpha
 
 python scripts/convert_public_datasets.py --n-truthfulqa 200 --n-csqa 200
@@ -85,10 +87,14 @@ runner.collect()                        -> results/raw_responses.csv
 results/item_scores.csv, summary.json, results/nepsyc_summary_*.txt (report.py)
 ```
 
+All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate` (CLI) and a
+future Streamlit dashboard are both just callers of it.
+
 ### Module map (`nepsyc/`)
 
 - `config.py` — typed config loaded from `config.yaml`. `RunCfg.dataset` is `None` by default
-  and derived at runtime as `data/nepsyc_<language>.csv`.
+  and derived at runtime as `data/nepsyc_<language>.csv`. `RunCfg.target_model_ids` is the
+  same empty-means-all convention as `behaviours`, filtering `target_models` by id or label.
 - `tables.py` — the CSV I/O layer all datasets go through. Two conventions carry structure CSV
   lacks: pipe-separated list columns (`correct_variants`), and dict columns split into named
   columns (`choice_a`..`choice_e`). A blank cell reads as `None`, never `""` — treating a blank
@@ -108,7 +114,11 @@ results/item_scores.csv, summary.json, results/nepsyc_summary_*.txt (report.py)
   `ProviderRouter`, which lets one sweep mix providers (e.g. Groq for Llama/Qwen/GPT-OSS,
   OpenRouter for Gemma/DeepSeek) by routing each model id to whichever provider block it's
   tagged with in `config.yaml`. `strip_think` strips `<think>...</think>` blocks (Qwen3,
-  DeepSeek-R1) before the judge ever sees a reply.
+  DeepSeek-R1) before the judge ever sees a reply. OpenAI and Gemini are first-class providers
+  here too — both expose OpenAI-compatible endpoints, so the same `OpenAICompatProvider`
+  handles them with no separate client; set `provider: openai` / `provider: gemini` on a
+  `target_models` entry (`config.yaml`) or `judges.provider` to route there, given
+  `OPENAI_API_KEY` / `GEMINI_API_KEY` in `.env`.
 - `runner.py` — executes each condition's turns as one growing message history per
   conversation; writes `results/raw_responses.csv`.
 - `judge.py` — `JudgePanel` runs N judge models against a fixed rubric per task and takes the
@@ -123,8 +133,22 @@ results/item_scores.csv, summary.json, results/nepsyc_summary_*.txt (report.py)
 - `report.py` — renders the `.txt` summary (`results/nepsyc_summary_<timestamp>.txt` and
   `..._latest.txt`), including the co-occurrence/correlation section and judge-reliability
   section (Section 5 is the only evidence judge scores are trustworthy).
+- `pipeline.py` — `run_evaluation(cfg, *, mock=False, human_file=None, progress=None) -> dict`
+  is the evaluate pipeline (dataset build/load, provider routing, collect, judge, score,
+  aggregate, write item_scores.csv / summary.json / judge_detail.csv / the .txt report) as an
+  importable function, so a caller other than the CLI (e.g. a Streamlit dashboard) can run a
+  sweep in-process and get `{items, scores, summary, report_text, paths}` back without
+  shelling out or re-parsing files. Writes the exact same output files at the same paths as
+  `cli.cmd_evaluate` always has -- this is a pure extraction, not a schema change. `progress`,
+  if given, is called at coarse milestones (`dataset ready`, `responses collected`, `scoring
+  done`, `report written`) with a `(fraction, message)` pair; `collect()`'s own tqdm bar is
+  unchanged and still prints for CLI use regardless. `list_configured_models(cfg)` reads
+  `target_models` / `judges` / `providers` out of config with no network call, for populating
+  a model-selection UI before a run.
 - `cli.py` — `build` / `check-models` / `evaluate` subcommands; `run.py` is a one-line
-  entrypoint into `nepsyc.cli.main()`.
+  entrypoint into `nepsyc.cli.main()`. `cmd_evaluate` only parses args into `cfg` (including
+  `--target-models`, which sets `cfg.run.target_model_ids`) and calls `pipeline.run_evaluation`
+  — the pipeline itself lives in `pipeline.py`.
 
 ### Seed vs. authored datasets
 

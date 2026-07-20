@@ -16,7 +16,23 @@ python run.py check-models        # what your gateway actually serves today
 python run.py evaluate            # the real sweep
 python run.py evaluate --language ne   # same sweep, Nepali split
 python run.py evaluate --limit-total 10 --mock   # quick smoke test, a handful of items
+python run.py evaluate --target-models Llama-3.1-8B   # sweep a subset of target_models, by id or label
 python run.py evaluate --gemini-judge             # judge with Gemini instead of the open-weight panel
+```
+
+The whole evaluate pipeline is also importable, for anything other than the CLI (e.g. a
+Streamlit dashboard) that wants results back in memory instead of re-parsing files:
+
+```python
+from nepsyc.config import load_config
+from nepsyc.pipeline import run_evaluation, list_configured_models
+
+cfg = load_config()
+cfg.run.target_model_ids = ["Llama-3.1-8B"]   # subset of target_models; empty = all
+result = run_evaluation(cfg, mock=True, progress=lambda frac, msg: print(frac, msg))
+result["scores"], result["summary"], result["report_text"], result["paths"]
+
+list_configured_models(cfg)   # {"targets": [...], "judges": [...], "providers": {...}} -- no network call
 ```
 
 Output lands in `results/`:
@@ -332,18 +348,34 @@ items each.
 
 ## Models
 
-`config.yaml` lists Groq model ids. As of **2026-07-10** Groq serves llama-3.1-8b-instant,
-llama-3.3-70b-versatile, openai/gpt-oss-20b, openai/gpt-oss-120b (production) plus
-qwen/qwen3-32b, qwen/qwen3.6-27b, meta-llama/llama-4-scout-17b-16e-instruct (preview).
-Groq announced deprecation of the two Llama 3.x models and qwen3-32b on 2026-06-17.
+`config.yaml` lists Groq model ids by default. As of **2026-07-10** Groq serves
+llama-3.1-8b-instant, llama-3.3-70b-versatile, openai/gpt-oss-20b, openai/gpt-oss-120b
+(production) plus qwen/qwen3-32b, qwen/qwen3.6-27b, meta-llama/llama-4-scout-17b-16e-instruct
+(preview). Groq announced deprecation of the two Llama 3.x models and qwen3-32b on 2026-06-17.
 
 **Groq does not host Gemma or DeepSeek.** Both are named in your proposal. To include them,
 uncomment the `openrouter` provider block in `config.yaml` and set `provider: openrouter`
 on those model entries — `ProviderRouter` will send each model id to the right gateway and
 everything downstream is unchanged.
 
-Always run `python run.py check-models` before a sweep. It hits `/v1/models` live and
-prints `OK` / `MISSING` for every configured id.
+**OpenAI and Gemini are first-class providers too**, not just an OpenRouter workaround — both
+expose OpenAI-compatible endpoints (`api.openai.com/v1`, and Google's
+`generativelanguage.googleapis.com/v1beta/openai/`), so the same `OpenAICompatProvider` in
+`providers.py` handles them unchanged; no `openai` or `google-generativeai` SDK involved. Both
+provider blocks already ship in `config.yaml` (`openai`, `gemini` under `providers:`) along
+with commented-out example `target_models` entries (`gpt-4o-mini`, `gpt-4o`,
+`gemini-2.5-flash`). To use one as a target model: set `OPENAI_API_KEY` / `GEMINI_API_KEY` in
+`.env` (see `.env.example`) and uncomment the matching entry. To use one as a judge instead,
+set `judges.provider: openai` (or `gemini`) and `judges.models` to that provider's model ids —
+or pass `--judge-provider openai --judge-models gpt-4o-mini` per run; `--gemini-judge` is the
+existing shorthand for the Gemini case. A default sweep with only `GROQ_API_KEY` set is
+unaffected — nothing above is enabled unless you uncomment it.
+
+Always run `python run.py check-models` before a sweep. It now iterates every provider block
+under `providers:` (not just Groq), hits each one's `/v1/models` live, and prints `OK` /
+`MISSING` for whichever target models and judges are routed there. A provider that errors —
+no key set, network issue, quota — is reported inline (e.g. `openai: could not list models:
+...`) and skipped, without aborting the providers that do work.
 
 ## Notes
 
@@ -372,6 +404,8 @@ nepsyc/config.py             typed config
        judge.py              rubrics, panel, median aggregation
        metrics.py            AGS DAS RPS MRS ATS AIS, flip rates, Spearman, Krippendorff
        report.py             the .txt summary
+       pipeline.py           run_evaluation() / list_configured_models() -- the evaluate
+                              pipeline as an importable function, for non-CLI callers
        cli.py                build / check-models / evaluate
 data/seeds/*_{en,ne,ne_rom}.csv       factual + MCQ seeds        (edit these)
 data/authored/*_{en,ne,ne_rom}.csv    delusion, mirroring, attribution, authority (edit these)

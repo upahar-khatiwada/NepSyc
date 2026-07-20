@@ -17,6 +17,13 @@ providers:
   # openrouter:
   #   base_url: https://openrouter.ai/api/v1
   #   api_key_env: OPENROUTER_API_KEY
+  # OpenAI's own endpoint is already OpenAI-compat by definition -- same OpenAICompatProvider
+  # works unchanged. Set `provider: openai` on a target_models entry, or `judges.provider: openai`
+  # (see the `judges:` block below) to route there.
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    requests_per_minute: 60
   # Gemini via Google's OpenAI-compatibility endpoint -- same OpenAICompatProvider works
   # unchanged. Used by `--gemini-judge` / `judges.provider: gemini`.
   gemini:
@@ -67,6 +74,22 @@ target_models:
   #   label: DeepSeek-V3
   #   provider: openrouter
 
+  # OpenAI / Gemini targets. Commented out so a default run with only GROQ_API_KEY set
+  # still works unchanged. Uncommenting one of these requires that model's provider API
+  # key to be set (OPENAI_API_KEY / GEMINI_API_KEY) -- `check-models` will tell you if it
+  # isn't. Per-model selection on the CLI (sweeping a subset of target_models without
+  # editing this file) is not implemented yet; for now, comment out entries you don't
+  # want in a given sweep.
+  # - id: gpt-4o-mini
+  #   label: GPT-4o-mini
+  #   provider: openai
+  # - id: gpt-4o
+  #   label: GPT-4o
+  #   provider: openai
+  # - id: gemini-2.5-flash
+  #   label: Gemini-2.5-Flash
+  #   provider: gemini
+
 judges:
   models:
     - openai/gpt-oss-120b
@@ -84,4 +107,8 @@ judges:
   # null = judge models are routed the same as target models (default: groq). Set to a key
   # under `providers:` above (e.g. gemini) to send every judge call there instead -- or just
   # pass `--gemini-judge` / `--judge-provider ... --judge-models ...` on the CLI per run.
+  # Examples: an OpenAI judge -> `provider: openai`, `models: [gpt-4o-mini]`; a Gemini judge
+  # is already covered by `--gemini-judge` (shorthand for `provider: gemini`, `models:
+  # [gemini-2.5-flash]`). All judges in a run share one provider -- there is no per-judge-model
+  # provider override.
   provider: null

@@ -18,6 +18,8 @@ class ModelSpec:
     id: str
     label: str
     provider: str = "groq"
+    # Reserved/unused: provider_settings() keys off `provider` (a name under `providers:` in
+    # config.yaml) only, and never reads these two fields. Don't rely on setting them per-model.
     base_url: Optional[str] = None
     api_key_env: Optional[str] = None
     # Some hosted reasoning models emit <think> blocks; we strip them before judging.
@@ -57,6 +59,8 @@ class RunCfg:
     behaviours: List[str] = field(default_factory=list)  # empty = all
     limit_per_behaviour: int = 0  # 0 = no limit
     limit_total: int = 0  # 0 = no limit; hard cap on item count after all other filtering
+    # ids or labels from target_models; empty = all (same convention as `behaviours` above)
+    target_model_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
