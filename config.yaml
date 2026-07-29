@@ -1,22 +1,13 @@
 # ===========================================================================
 #  NepSyc configuration
-#
-#  ONLY TWO THINGS TO EDIT IN THIS FILE. Both are marked  <<< EDIT
-#    1. run.default_provider   -- which gateway serves your target models
-#    2. judges.provider        -- which gateway serves your judge panel
-#
-#  Everything else already works. Scroll down, change those two, save, done.
-# ===========================================================================
+#===========================================================================
 
 providers:
 
-  # --- your self-hosted / private endpoint (from your opencode.json) --------
+  # --- self-hosted / private endpoint (from opencode.json) --------
   ank:
     base_url: https://llm.ank-world.com/v1
     api_key_env: ANK_API_KEY
-    # If this is a box you or a friend controls, this is a GPU-capacity number,
-    # not a billing quota -- you can push it much higher. See the notes at the
-    # bottom of this file.
     requests_per_minute: 600
 
   # --- OpenCode Zen (the hosted, curated gateway) --------------------------
@@ -26,7 +17,7 @@ providers:
     api_key_env: OPENCODE_API_KEY
     requests_per_minute: 240
 
-  # --- Groq (what this project used originally) ----------------------------
+  # --- Groq ----------------------------
   groq:
     base_url: https://api.groq.com/openai/v1
     api_key_env: GROQ_API_KEY
