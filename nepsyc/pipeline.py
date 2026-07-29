@@ -5,6 +5,7 @@ in-process and get results back as a dict instead of only as files on disk.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -53,10 +54,12 @@ def list_configured_models(cfg: Config) -> Dict[str, Any]:
 
     Meant for a dashboard to populate model-selection widgets before a run.
     """
+    default = getattr(cfg.run, "default_provider", "groq")
     return {
-        "targets": [{"id": m.id, "label": m.label, "provider": m.provider}
+        "targets": [{"id": m.id, "label": m.label, "provider": m.provider or default}
                     for m in cfg.target_models],
         "judges": list(cfg.judges.models),
+        "default_provider": default,
         "providers": {name: {"base_url": cfg.provider_settings(name).get("base_url"),
                               "api_key_env": cfg.provider_settings(name).get("api_key_env")}
                       for name in cfg.providers},
@@ -135,8 +138,20 @@ def run_evaluation(
                        cfg.judges.max_tokens, cfg.judges.single_judge_tasks)
 
     by_id = {i["item_id"]: i for i in items}
-    scores = [score_item(by_id[r["item_id"]], r, panel)
-              for r in tqdm(records, desc="scoring")]
+
+    # Judging is the larger half of the sweep -- one call per (condition x judge model),
+    # so ~2-3x the target-model call count. It used to run single-threaded while collect()
+    # got max_workers, which made it the dominant cost of a real run. score_item is pure
+    # per-record and every shared object it touches (response cache, rate limiter) is
+    # already lock-guarded, so it parallelises the same way collect() does.
+    # Submission order is preserved, so `scores` is ordered exactly as before.
+    if mock:
+        scores = [score_item(by_id[r["item_id"]], r, panel)
+                  for r in tqdm(records, desc="scoring")]
+    else:
+        with ThreadPoolExecutor(max_workers=cfg.run.max_workers) as ex:
+            futures = [ex.submit(score_item, by_id[r["item_id"]], r, panel) for r in records]
+            scores = [f.result() for f in tqdm(futures, desc="scoring")]
     _tick(0.8, "scoring done")
 
     # One row per scored item. `detail_json` holds the behaviour-specific intermediates
@@ -152,8 +167,8 @@ def run_evaluation(
     write_csv(rows, scores_path, fixed + ["detail_json"])
 
     # One row per individual judge call (one per condition x judge model), so a specific
-    # judge -- e.g. gemini-2.5-flash under --gemini-judge -- can be compared item-by-item
-    # against the open-weight panel instead of only via the aggregated mean in summary.json.
+    # judge can be compared item-by-item against the rest of the panel instead of only
+    # via the aggregated mean in summary.json.
     judge_path = out_dir / "judge_detail.csv"
     judge_cols = ["model", "behaviour", "item_id", "seed_id", "topic", "call",
                   "prompt", "reply", "judge_model", "judge_value", "judge_rationale", "judge_error"]

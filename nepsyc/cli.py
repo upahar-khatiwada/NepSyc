@@ -50,22 +50,40 @@ def cmd_check_models(args):
     /v1/models live and reporting OK/MISSING for whichever target_models and judges
     are routed to it. A provider that errors (missing key, network, quota) is reported
     inline and skipped -- it must not abort the other providers.
+
+    Routing here MUST match what providers.build_router() does at sweep time, or this
+    command reports on a configuration that will never actually run: a model with no
+    `provider:` of its own goes to run.default_provider, not to a hardcoded gateway.
     """
     cfg = load_config(args.config)
     cache = ResponseCache(_resolve(cfg.run.cache_path))
 
+    default_provider = cfg.run.default_provider
+
     targets_by_provider = {}
     for m in cfg.target_models:
-        targets_by_provider.setdefault(m.provider or "groq", []).append(m.id)
-    judge_provider = cfg.judges.provider or "groq"
+        targets_by_provider.setdefault(cfg.provider_for(m), []).append(m.id)
+    judge_provider = cfg.judges.provider or default_provider
+
+    print(f"default_provider: {default_provider}  "
+          f"(any target without its own `provider:` is routed here)")
+
+    # A provider that is configured but has nothing routed to it is just noise -- say so
+    # rather than printing a bare model count that looks like a result.
+    in_use = set(targets_by_provider) | {judge_provider}
+    problems = []
 
     for name in sorted(cfg.providers):
-        print(f"\n[{name}]")
+        used = name in in_use
+        print(f"\n[{name}]{'' if used else '  (not used by this config)'}")
         try:
             prov = build_provider(cfg, name, cache, mock=False)
             available = set(prov.list_models())
         except Exception as e:
-            print(f"  {name}: could not list models: {e}")
+            msg = f"could not list models: {e}"
+            print(f"  {msg}")
+            if used:
+                problems.append(f"{name}: {msg}")
             continue
         print(f"  {len(available)} models served by {prov.base_url}")
 
@@ -73,12 +91,26 @@ def cmd_check_models(args):
         if targets:
             print("  configured targets:")
             for mid in targets:
-                print(f"    {'OK ' if mid in available else 'MISSING'} {mid}")
+                ok = mid in available
+                print(f"    {'OK ' if ok else 'MISSING'} {mid}")
+                if not ok:
+                    problems.append(f"{name}: target '{mid}' not served")
 
         if name == judge_provider and cfg.judges.models:
             print("  configured judges:")
             for jm in cfg.judges.models:
-                print(f"    {'OK ' if jm in available else 'MISSING'} {jm}")
+                ok = jm in available
+                print(f"    {'OK ' if ok else 'MISSING'} {jm}")
+                if not ok:
+                    problems.append(f"{name}: judge '{jm}' not served")
+
+    print()
+    if problems:
+        print("PROBLEMS -- a real sweep will fail on these:")
+        for p in problems:
+            print(f"  - {p}")
+    else:
+        print("All configured targets and judges are served. Ready to sweep.")
 
 
 def cmd_evaluate(args):
@@ -95,6 +127,10 @@ def cmd_evaluate(args):
         cfg.run.target_model_ids = args.target_models
     if args.dataset:
         cfg.run.dataset = args.dataset
+    if args.default_provider:
+        cfg.run.default_provider = args.default_provider
+    if args.max_workers:
+        cfg.run.max_workers = args.max_workers
 
     if args.gemini_judge:
         cfg.judges.provider = "gemini"
@@ -132,6 +168,11 @@ def main():
     e.add_argument("--target-models", nargs="*", default=None,
                    help="subset of target_models to sweep, by id or label "
                         "(e.g. --target-models Llama-3.1-8B); default: all configured targets")
+    e.add_argument("--default-provider", default=None,
+                   help="override run.default_provider for this run (e.g. --default-provider groq)")
+    e.add_argument("--max-workers", type=int, default=0,
+                   help="override run.max_workers for this run; useful for finding the "
+                        "throughput ceiling without editing config.yaml")
     e.add_argument("--mock", action="store_true", help="offline dry run, no API key needed")
     e.add_argument("--human", default=None, help="human_annotations.csv for Krippendorff alpha")
     e.add_argument("--gemini-judge", action="store_true",

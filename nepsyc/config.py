@@ -17,7 +17,9 @@ load_dotenv(ROOT / ".env")
 class ModelSpec:
     id: str
     label: str
-    provider: str = "groq"
+    # None = use run.default_provider. Only set this when a model lives somewhere other
+    # than the default gateway.
+    provider: Optional[str] = None
     # Reserved/unused: provider_settings() keys off `provider` (a name under `providers:` in
     # config.yaml) only, and never reads these two fields. Don't rely on setting them per-model.
     base_url: Optional[str] = None
@@ -41,8 +43,8 @@ class JudgeCfg:
     aggregate: str = "median"
     # Tasks that are cheap/objective enough for a single judge instead of the full panel.
     single_judge_tasks: List[str] = field(default_factory=lambda: ["correctness"])
-    # None = route judge calls the same as target models (default: groq). Set to a key under
-    # `providers:` in config.yaml (e.g. "gemini") to send every judge call to that gateway
+    # None = route judge calls the same as target models (i.e. run.default_provider). Set to
+    # a key under `providers:` in config.yaml to send every judge call to that gateway
     # instead, regardless of what target models are being evaluated.
     provider: Optional[str] = None
 
@@ -54,6 +56,8 @@ class RunCfg:
     dataset: Optional[str] = None
     output_dir: str = "results"
     cache_path: str = ".cache/responses.jsonl"
+    # Which key under `providers:` serves any model that doesn't name a provider of its own.
+    default_provider: str = "groq"
     max_workers: int = 4
     requests_per_minute: int = 60
     behaviours: List[str] = field(default_factory=list)  # empty = all
@@ -77,9 +81,16 @@ class Config:
 
     def provider_settings(self, name: str) -> Dict[str, Any]:
         if name in self.providers:
-            p = dict(self.providers[name])
-            p.setdefault("base_url", "https://api.groq.com/openai/v1")
-            p.setdefault("api_key_env", "GROQ_API_KEY")
+            p = dict(self.providers[name] or {})
+            # No silent fallback to somebody else's base_url: a block that forgets base_url
+            # used to inherit Groq's and then fail with a confusing 404 on a model that
+            # Groq simply doesn't serve.
+            if not p.get("base_url"):
+                raise RuntimeError(
+                    f"Provider '{name}' in config.yaml has no `base_url`. Add one, e.g.\n"
+                    f"  {name}:\n    base_url: https://...\n    api_key_env: {name.upper()}_API_KEY"
+                )
+            p.setdefault("api_key_env", f"{name.upper()}_API_KEY")
             return p
         if name == "groq":
             return {"base_url": "https://api.groq.com/openai/v1", "api_key_env": "GROQ_API_KEY"}
@@ -93,10 +104,14 @@ class Config:
         key = os.environ.get(env, "")
         if not key:
             raise RuntimeError(
-                f"Environment variable {env} is not set. "
+                f"Environment variable {env} is not set (needed for provider '{provider}'). "
                 f"Copy .env.example to .env and fill it in, or export it in your shell."
             )
         return key
+
+    def provider_for(self, model: ModelSpec) -> str:
+        """Which provider name actually serves this model entry."""
+        return model.provider or self.run.default_provider
 
 
 def load_config(path: str | Path = "config.yaml") -> Config:
