@@ -1,9 +1,17 @@
 """Model access layer.
 
-Everything speaks the OpenAI chat-completions schema, which is what Groq exposes at
-https://api.groq.com/openai/v1 .  That means the exact same code points at OpenRouter,
-Together, Fireworks or a local vLLM server by changing `base_url` in config.yaml --
-useful because Groq no longer hosts Gemma or DeepSeek.
+Everything speaks the OpenAI chat-completions schema, so the same code points at any
+OpenAI-compatible gateway by changing `base_url` in config.yaml:
+
+    OpenCode Zen  https://opencode.ai/zen/v1
+    Groq          https://api.groq.com/openai/v1
+    OpenRouter    https://openrouter.ai/api/v1
+    OpenAI        https://api.openai.com/v1
+    Gemini        https://generativelanguage.googleapis.com/v1beta/openai/
+    local vLLM    http://localhost:8000/v1
+
+Which one is the *default* is `run.default_provider` in config.yaml -- no provider name is
+hardcoded here any more. A model entry only needs `provider:` if it differs from that default.
 """
 from __future__ import annotations
 
@@ -11,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -42,7 +51,12 @@ def _key(base_url: str, model: str, messages: List[Message], temperature: float,
 
 
 class ResponseCache:
-    """Append-only JSONL cache. Re-running a sweep costs nothing for items already collected."""
+    """Append-only JSONL cache. Re-running a sweep costs nothing for items already collected.
+
+    NOTE: the key includes base_url, so switching gateway (Groq -> OpenCode Zen) starts a
+    fresh cache even for an identical model id. That is deliberate -- the same nominal model
+    on two gateways is not guaranteed to be the same weights or the same sampling defaults.
+    """
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -74,6 +88,14 @@ class ResponseCache:
 
 
 class _RateLimiter:
+    """Spaces requests to at most `rpm` per minute, across all worker threads.
+
+    The sleep happens while holding the lock, so this is a hard global cap: actual
+    throughput is min(rpm, max_workers / avg_latency). If a sweep feels slow, this
+    number and run.max_workers are the two dials -- raising one without the other
+    does nothing.
+    """
+
     def __init__(self, rpm: int):
         self.min_interval = 60.0 / max(rpm, 1)
         self._lock = threading.Lock()
@@ -88,6 +110,15 @@ class _RateLimiter:
             self._last = time.monotonic()
 
 
+_WARNED: set = set()
+
+
+def _warn_once(msg: str) -> None:
+    if msg not in _WARNED:
+        _WARNED.add(msg)
+        print(f"[providers] {msg}", file=sys.stderr)
+
+
 class OpenAICompatProvider:
     def __init__(
         self,
@@ -97,6 +128,7 @@ class OpenAICompatProvider:
         rpm: int = 60,
         timeout: int = 120,
         max_retries: int = 5,
+        name: str = "provider",
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -104,6 +136,7 @@ class OpenAICompatProvider:
         self.limiter = _RateLimiter(rpm)
         self.timeout = timeout
         self.max_retries = max_retries
+        self.name = name
         self.session = requests.Session()
 
     # --- public -----------------------------------------------------------
@@ -144,6 +177,11 @@ class OpenAICompatProvider:
             "max_completion_tokens": max_tokens,
             "stream": False,
         }
+        # One-shot schema fallbacks, tried at most once each so a permanently-400ing
+        # request cannot spin the retry budget.
+        tried_max_tokens = False
+        tried_drop_temp = False
+
         last_err = None
         for attempt in range(self.max_retries):
             self.limiter.wait()
@@ -162,6 +200,14 @@ class OpenAICompatProvider:
                 time.sleep(2 ** attempt)
                 continue
 
+            # Auth problems never fix themselves; fail loudly instead of burning retries.
+            if r.status_code in (401, 403):
+                raise RuntimeError(
+                    f"{self.name}/{model}: HTTP {r.status_code} -- the API key for this "
+                    f"provider was rejected. Check the api_key_env value in config.yaml "
+                    f"points at a variable that is actually set in .env.\n{r.text[:300]}"
+                )
+
             if r.status_code == 429:
                 retry_after = float(r.headers.get("retry-after", 2 ** attempt))
                 time.sleep(min(retry_after, 60))
@@ -169,18 +215,37 @@ class OpenAICompatProvider:
             if r.status_code >= 500:
                 time.sleep(2 ** attempt)
                 continue
-            if r.status_code == 400 and "max_completion_tokens" in r.text:
+
+            if r.status_code == 400:
+                body = r.text
+                low = body.lower()
                 # older gateways only accept max_tokens
-                payload.pop("max_completion_tokens", None)
-                payload["max_tokens"] = max_tokens
-                continue
+                if not tried_max_tokens and "max_completion_tokens" in body:
+                    payload.pop("max_completion_tokens", None)
+                    payload["max_tokens"] = max_tokens
+                    tried_max_tokens = True
+                    continue
+                # some reasoning models (gpt-5.x, o-series) reject an explicit temperature
+                if not tried_drop_temp and "temperature" in low:
+                    payload.pop("temperature", None)
+                    tried_drop_temp = True
+                    _warn_once(
+                        f"{model} rejected temperature={temperature}; retrying without it. "
+                        f"Difference metrics (MRS/ATS/AIS) from this model are NOT "
+                        f"temperature-0 and will carry sampling noise."
+                    )
+                    continue
+
             if not r.ok:
-                raise RuntimeError(f"{model}: HTTP {r.status_code}: {r.text[:400]}")
+                raise RuntimeError(f"{self.name}/{model}: HTTP {r.status_code}: {r.text[:400]}")
 
             data = r.json()
-            return data["choices"][0]["message"]["content"] or ""
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError(f"{self.name}/{model}: no choices in response: {str(data)[:300]}")
+            return choices[0].get("message", {}).get("content") or ""
 
-        raise RuntimeError(f"{model}: exhausted retries. last error: {last_err}")
+        raise RuntimeError(f"{self.name}/{model}: exhausted retries. last error: {last_err}")
 
 
 class MockProvider:
@@ -206,10 +271,10 @@ class MockProvider:
 
     def chat(self, model, messages, temperature=0.0, max_tokens=700, strip_think=True) -> str:
         h = self._h(messages)
-        sys = messages[0]["content"] if messages and messages[0]["role"] == "system" else ""
+        sys_msg = messages[0]["content"] if messages and messages[0]["role"] == "system" else ""
 
-        if self.JUDGE_MARK in sys:
-            return self._mock_judge(sys, h)
+        if self.JUDGE_MARK in sys_msg:
+            return self._mock_judge(sys_msg, h)
 
         # target-model behaviour: sometimes agreeable, sometimes firm
         if h % 3 == 0:
@@ -218,18 +283,18 @@ class MockProvider:
             return "I have to disagree here. The evidence does not support that claim, and the accurate answer is different. Answer: B"
         return "That's an interesting point. There are arguments on both sides, though on balance I'd lean toward caution. Rating: 7/10. Answer: A"
 
-    def _mock_judge(self, sys: str, h: int) -> str:
-        if "TASK: agreement_bias" in sys:
+    def _mock_judge(self, sys_msg: str, h: int) -> str:
+        if "TASK: agreement_bias" in sys_msg:
             return json.dumps({"score": h % 6, "rationale": "mock"})
-        if "TASK: delusion_acceptance" in sys:
+        if "TASK: delusion_acceptance" in sys_msg:
             return json.dumps({"score": h % 6, "rationale": "mock"})
-        if "TASK: stance" in sys:
+        if "TASK: stance" in sys_msg:
             return json.dumps({"score": (h % 11) - 5, "rationale": "mock"})
-        if "TASK: correctness" in sys:
+        if "TASK: correctness" in sys_msg:
             return json.dumps({"label": ["correct", "incorrect", "hedge"][h % 3], "rationale": "mock"})
-        if "TASK: evaluation_positivity" in sys:
+        if "TASK: evaluation_positivity" in sys_msg:
             return json.dumps({"score": h % 11, "error_flagged": bool(h % 2), "rationale": "mock"})
-        if "TASK: agreement_level" in sys:
+        if "TASK: agreement_level" in sys_msg:
             return json.dumps({"score": h % 11, "rationale": "mock"})
         return json.dumps({"score": 0, "rationale": "mock"})
 
@@ -242,18 +307,20 @@ def build_provider(cfg, provider_name: str, cache: ResponseCache, mock: bool = F
         base_url=settings["base_url"],
         api_key=cfg.api_key(provider_name),
         cache=cache,
+        name=provider_name,
         # Optional per-provider override (providers.<name>.requests_per_minute in
-        # config.yaml) -- a hosted gateway like Gemini can have a much lower RPM quota
-        # than run.requests_per_minute, which is really "how fast can I hit Groq".
+        # config.yaml). A free-tier gateway can have a far lower RPM quota than
+        # run.requests_per_minute, which is tuned for whatever the default provider is.
         rpm=settings.get("requests_per_minute", cfg.run.requests_per_minute),
+        timeout=settings.get("timeout", 120),
     )
 
 
 class ProviderRouter:
     """Routes each model id to the provider that serves it.
 
-    Lets one sweep mix Groq (llama, qwen, gpt-oss) with, say, OpenRouter (gemma,
-    deepseek) without any change to runner/judge code.
+    Lets one sweep mix OpenCode Zen with, say, OpenRouter or Groq without any change to
+    runner/judge code.
     """
 
     def __init__(self, default, by_model: Optional[Dict[str, object]] = None):
@@ -274,8 +341,14 @@ class ProviderRouter:
 
 
 def build_router(cfg, cache: ResponseCache, mock: bool = False):
+    """Build the router, using run.default_provider as the fallback for unlabelled models.
+
+    Previously this hardcoded groq as the default, which meant GROQ_API_KEY had to be set
+    even for a sweep that never touched Groq.
+    """
     if mock:
         return ProviderRouter(MockProvider(cache=None))
+
     providers: Dict[str, object] = {}
 
     def get(name: str):
@@ -283,13 +356,19 @@ def build_router(cfg, cache: ResponseCache, mock: bool = False):
             providers[name] = build_provider(cfg, name, cache, mock=False)
         return providers[name]
 
-    default = get("groq")
-    by_model = {}
+    default_name = getattr(cfg.run, "default_provider", None) or "groq"
+    default = get(default_name)
+
+    by_model: Dict[str, object] = {}
     for m in cfg.target_models:
-        if m.provider and m.provider != "groq":
-            by_model[m.id] = get(m.provider)
-    if cfg.judges.provider and cfg.judges.provider != "groq":
-        judge_provider = get(cfg.judges.provider)
+        name = m.provider or default_name
+        if name != default_name:
+            by_model[m.id] = get(name)
+
+    judge_name = cfg.judges.provider or default_name
+    if judge_name != default_name:
+        judge_provider = get(judge_name)
         for jm in cfg.judges.models:
             by_model[jm] = judge_provider
+
     return ProviderRouter(default, by_model)

@@ -1,114 +1,173 @@
-# ---------------------------------------------------------------------------
-# NepSyc configuration
-#
-# Groq's catalogue moves fast. Run `python run.py check-models` before a sweep;
-# it hits /v1/models live and tells you which of the ids below still exist.
-#
-# As of July 2026 Groq does NOT host Gemma or DeepSeek. To include them, add a
-# second provider block pointing at an OpenAI-compatible gateway that does
-# (OpenRouter, Together, Fireworks, or your own vLLM), and set `provider:` on
-# the relevant model entries.
-# ---------------------------------------------------------------------------
+# ===========================================================================
+#  NepSyc configuration
+#===========================================================================
 
 providers:
+
+  # --- self-hosted / private endpoint (from opencode.json) --------
+  ank:
+    base_url: https://llm.ank-world.com/v1
+    api_key_env: ANK_API_KEY
+    requests_per_minute: 600
+
+  # --- OpenCode Zen (the hosted, curated gateway) --------------------------
+  # Key: https://opencode.ai/auth
+  opencode:
+    base_url: https://opencode.ai/zen/v1
+    api_key_env: OPENCODE_API_KEY
+    requests_per_minute: 240
+
+  # --- Groq ----------------------------
   groq:
     base_url: https://api.groq.com/openai/v1
     api_key_env: GROQ_API_KEY
-  # openrouter:
-  #   base_url: https://openrouter.ai/api/v1
-  #   api_key_env: OPENROUTER_API_KEY
-  # OpenAI's own endpoint is already OpenAI-compat by definition -- same OpenAICompatProvider
-  # works unchanged. Set `provider: openai` on a target_models entry, or `judges.provider: openai`
-  # (see the `judges:` block below) to route there.
+    requests_per_minute: 60
+
   openai:
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
     requests_per_minute: 60
-  # Gemini via Google's OpenAI-compatibility endpoint -- same OpenAICompatProvider works
-  # unchanged. Used by `--gemini-judge` / `judges.provider: gemini`.
+
   gemini:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     api_key_env: GEMINI_API_KEY
-    # Gemini's free-tier RPM quota is well below run.requests_per_minute (60, tuned for
-    # Groq). Lower this to your actual quota -- see aistudio.google.com/app/apikey -- if
-    # you're seeing "exhausted retries" errors in judge_detail.csv under --gemini-judge.
     requests_per_minute: 10
 
+
 run:
-  # en | ne | ne_rom. Selects both the built dataset (data/nepsyc_<language>.csv, unless
-  # `dataset` below overrides it) and which seed/authored CSVs `build` reads from.
-  language: en
-  dataset: null      # null = derive from `language` as data/nepsyc_<language>.csv
+  # <<< EDIT #1 --------------------------------------------------------------
+  # Put the name of ONE provider block from above. Any model below that doesn't
+  # name its own provider gets sent here.
+  #   ank       = your llm.ank-world.com endpoint
+  #   opencode  = OpenCode Zen
+  #   groq      = the original setup
+  default_provider: ank
+  # --------------------------------------------------------------------------
+
+  language: en              # en | ne | ne_rom
+  dataset: null             # null = data/nepsyc_<language>.csv
   output_dir: results
   cache_path: .cache/responses.jsonl
-  max_workers: 4
-  requests_per_minute: 60
+
+  # SPEED. These two multiply. The old values (4 / 60) capped the entire sweep
+  # at ~1 request per second, which is why runs took hours. requests_per_minute
+  # is a hard global gate, so raising max_workers alone does nothing.
+  max_workers: 12
+  requests_per_minute: 240
+
   behaviours: []            # empty = all six
-  limit_per_behaviour: 0    # 0 = no limit; testing, e.g. 3 (or `--limit 3` on the CLI)
-  limit_total: 0            # 0 = no limit; hard cap across all behaviours (`--limit-total 10`)
+  limit_per_behaviour: 0    # 0 = no limit
+  limit_total: 0            # 0 = no limit
+
 
 generation:
-  temperature: 0.0          # sycophancy is a difference score; kill the sampling noise
-  max_tokens: 700
-  system_prompt: null       # keep null for the default-persona baseline
+  temperature: 0.0
+  # Reasoning models (Qwen3.x, GLM, DeepSeek-R1) burn part of this budget on
+  # hidden <think> tokens before the visible answer. If replies come back
+  # truncated mid-sentence, raise this to 1200 first -- a truncated reply gets
+  # judged as a hedge and quietly corrupts your scores.
+  max_tokens: 2000
+  system_prompt: null
 
+
+# ---------------------------------------------------------------------------
+#  TARGET MODELS -- the models being tested for sycophancy.
+#  A model only needs a `provider:` line if it lives somewhere OTHER than
+#  run.default_provider above.
+# ---------------------------------------------------------------------------
 target_models:
+
+  # Your endpoint. NOTE: this is the `id` field from inside your opencode.json,
+  # not the outer key -- the outer key is only a display label. Verify against
+  # /v1/models before a real run, one of the two spellings looks like a typo.
+  - id: unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
+    label: Qwen3.6-35B
+    strip_think: true
+
+  # OpenCode Zen models -- uncomment if you have a Zen key. Verify the ids with
+  # `python run.py check-models` first; Zen's catalogue changes often.
+  # - id: kimi-k2
+  #   label: Kimi-K2
+  #   provider: opencode
+  # - id: glm-4.6
+  #   label: GLM-4.6
+  #   provider: opencode
+  #   strip_think: true
+  # - id: claude-haiku-4-5
+  #   label: Claude-Haiku-4.5
+  #   provider: opencode
+
+  # The original Groq set.
   - id: llama-3.3-70b-versatile
     label: Llama-3.3-70B
+    provider: groq
   - id: llama-3.1-8b-instant
     label: Llama-3.1-8B
-  - id: qwen/qwen3.6-27b
-    label: Qwen3.6-27B
-    strip_think: true
+    provider: groq
   - id: openai/gpt-oss-20b
-    label: GPT-OSS-20B
-  - id: meta-llama/llama-4-scout-17b-16e-instruct
-    label: Llama-4-Scout-17B
+    label: GPT-OSS-20B 
+    provider: groq
 
-  # Named in the proposal but NOT served by Groq as of 2026-07. Uncomment once a
-  # provider block above can reach them.
-  # - id: google/gemma-2-9b-it
-  #   label: Gemma2-9B
-  #   provider: openrouter
-  # - id: deepseek/deepseek-chat
-  #   label: DeepSeek-V3
-  #   provider: openrouter
 
-  # OpenAI / Gemini targets. Commented out so a default run with only GROQ_API_KEY set
-  # still works unchanged. Uncommenting one of these requires that model's provider API
-  # key to be set (OPENAI_API_KEY / GEMINI_API_KEY) -- `check-models` will tell you if it
-  # isn't. Per-model selection on the CLI (sweeping a subset of target_models without
-  # editing this file) is not implemented yet; for now, comment out entries you don't
-  # want in a given sweep.
-  # - id: gpt-4o-mini
-  #   label: GPT-4o-mini
-  #   provider: openai
-  # - id: gpt-4o
-  #   label: GPT-4o
-  #   provider: openai
-  # - id: gemini-2.5-flash
-  #   label: Gemini-2.5-Flash
-  #   provider: gemini
-
+# ---------------------------------------------------------------------------
+#  JUDGES -- the models that SCORE the replies. Not the same job as targets.
+#
+#  Keep these on a different gateway from your targets where you can. A model
+#  scoring its own replies has a documented self-preference bias, and if your
+#  target endpoint only serves one model then routing judges there means Qwen
+#  grading Qwen -- the one result a reviewer will refuse to accept.
+# ---------------------------------------------------------------------------
 judges:
   models:
     - openai/gpt-oss-120b
     - llama-3.3-70b-versatile
     - qwen/qwen3.6-27b
+
+  # <<< EDIT #2 --------------------------------------------------------------
+  # These three ids are Groq ids, so this must say `groq`.
+  #
+  # NO GROQ KEY? Then swap in one of the fallbacks below -- the model ids have
+  # to match wherever you send them.
+  provider: groq
+  # --------------------------------------------------------------------------
+
+  # FALLBACK A -- judges on OpenCode Zen (needs OPENCODE_API_KEY):
+  #   models:
+  #     - claude-haiku-4-5
+  #     - glm-4.6
+  #     - kimi-k2
+  #   provider: opencode
+  #
+  # FALLBACK B -- last resort, judges on your own endpoint. This is Qwen
+  # grading Qwen. Fine for checking the pipeline runs; do not report numbers
+  # from it without saying so in the writeup.
+  #   models:
+  #     - unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
+  #   provider: ank
+
   temperature: 0.0
-  # Gemini 2.5 models spend part of this budget on hidden "thinking" tokens before the
-  # visible JSON, even via the OpenAI-compat endpoint -- 500 was truncating the rationale
-  # before the closing brace and silently dropping the vote (see judge_detail.csv).
+  # Reasoning models spend part of this on hidden thinking before the JSON;
+  # 500 was truncating rationales before the closing brace and dropping votes.
   max_tokens: 1500
   aggregate: median
-  # Objective enough not to need three votes; saves ~40% of judge calls.
   single_judge_tasks:
     - correctness
-  # null = judge models are routed the same as target models (default: groq). Set to a key
-  # under `providers:` above (e.g. gemini) to send every judge call there instead -- or just
-  # pass `--gemini-judge` / `--judge-provider ... --judge-models ...` on the CLI per run.
-  # Examples: an OpenAI judge -> `provider: openai`, `models: [gpt-4o-mini]`; a Gemini judge
-  # is already covered by `--gemini-judge` (shorthand for `provider: gemini`, `models:
-  # [gemini-2.5-flash]`). All judges in a run share one provider -- there is no per-judge-model
-  # provider override.
-  provider: null
+
+
+# ---------------------------------------------------------------------------
+#  SPEED NOTES
+#
+#  Effective throughput = min(requests_per_minute / 60, max_workers / latency)
+#
+#  Both numbers have to move together. 12 workers at ~3s per request is ~4
+#  requests/sec, which needs requests_per_minute >= 240 to not be throttled.
+#
+#  If llm.ank-world.com is your own box: it has no billing quota, so the real
+#  limit is how many requests the GPU batches at once. vLLM handles 32-64
+#  concurrent comfortably. Try max_workers: 32 and requests_per_minute: 1200,
+#  then watch for timeouts or 429s and back off if you see them.
+#
+#  If you are on a hosted gateway: leave these as they are. 429s are handled
+#  (the client honours retry-after) but constant backoff is slower than just
+#  running under the quota.
+# ---------------------------------------------------------------------------
