@@ -30,12 +30,36 @@ CATEGORICAL = ["#2a78d6", "#008300", "#e87ba4", "#eda100",
 SIGNED_METRICS = {"MRS", "ATS", "AIS"}
 LANGUAGES = ["en", "ne", "ne_rom"]
 
+# A sweep that silently drops most of its items still produces a full table of means
+# and CIs. These thresholds drive the coverage panel that sits next to every score.
+COVERAGE_OK = 0.90
+COVERAGE_BAD = 0.50
+BLANK_RATE_BAD = 0.05
+JUDGE_ERROR_BAD = 0.10
+MIN_N_FOR_CI = 10
+
 BEHAVIOUR_EXTRA_COLS = {
     "revision_under_pressure": ["baseline_accuracy", "flip_rate", "stable_correct_rate", "recovery_rate"],
     "attribution_bias": ["mean_rating_delta", "mean_error_flag_gap"],
     "mirroring": ["mean_abs", "pct_positive"],
     "agreement_bias": ["hard_agreement_rate_mcq"],
 }
+
+
+def _style_map(styler, fn, subset=None):
+    """Styler.applymap was renamed to Styler.map in pandas 2.1."""
+    if hasattr(styler, "map"):
+        return styler.map(fn, subset=subset)
+    return styler.applymap(fn, subset=subset)
+
+
+def _read_csv(path: Path | None) -> pd.DataFrame | None:
+    if not path or not path.exists():
+        return None
+    try:
+        return pd.read_csv(path)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _behaviour_extras(behaviour: str, summary: dict, models: list[str]) -> pd.DataFrame | None:
@@ -51,6 +75,82 @@ def _behaviour_extras(behaviour: str, summary: dict, models: list[str]) -> pd.Da
     return pd.DataFrame(rows).set_index("model") if rows else None
 
 
+def _coverage_frames(summary: dict, models: list[str], behaviours: list[str]):
+    """Returns (fraction scored, 'scored/total' labels, list of shortfalls)."""
+    frac_rows, label_rows, shortfalls = [], [], []
+    for m in models:
+        frac = {"model": m}
+        label = {"model": m}
+        for b in behaviours:
+            metric = METRIC_OF[b]
+            e = summary.get(f"{m}||{b}")
+            if not e:
+                frac[metric] = None
+                label[metric] = "—"
+                continue
+            total = e.get("n_items") or 0
+            scored = e.get("n_scored") or 0
+            frac[metric] = (scored / total) if total else None
+            label[metric] = f"{scored}/{total}"
+            if total and scored / total < COVERAGE_OK:
+                shortfalls.append((m, metric, scored, total, scored / total))
+        frac_rows.append(frac)
+        label_rows.append(label)
+    return (
+        pd.DataFrame(frac_rows).set_index("model"),
+        pd.DataFrame(label_rows).set_index("model"),
+        shortfalls,
+    )
+
+
+def _coverage_color(v) -> str:
+    if v is None or v != v:
+        return "background-color: rgba(128,128,128,0.15)"
+    if v < COVERAGE_BAD:
+        return "background-color: rgba(227,73,72,0.35)"
+    if v < COVERAGE_OK:
+        return "background-color: rgba(237,161,0,0.30)"
+    return "background-color: rgba(27,175,122,0.18)"
+
+
+def _collection_health(raw: pd.DataFrame) -> pd.DataFrame:
+    d = raw.copy()
+    d["len"] = d["reply"].fillna("").astype(str).str.len()
+    g = d.groupby("model").agg(turns=("len", "size"), blank=("len", lambda s: int((s == 0).sum())))
+    g["blank rate"] = g["blank"] / g["turns"]
+    if "error" in d.columns:
+        g["errored"] = d.groupby("model")["error"].count()
+    g["median reply chars"] = d[d["len"] > 0].groupby("model")["len"].median()
+    return g
+
+
+def _judge_health(jd: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    per_judge = jd.groupby("judge_model").agg(
+        calls=("judge_model", "size"),
+        errors=("judge_error", "count"),
+    )
+    per_judge["error rate"] = per_judge["errors"] / per_judge["calls"]
+
+    numeric = jd.copy()
+    numeric["v"] = pd.to_numeric(numeric["judge_value"], errors="coerce")
+    numeric = numeric[numeric["v"].notna()]
+
+    panel: dict = {"judges_per_call": None, "single_judge_calls": None,
+                   "mean_spread": None, "unanimous": None}
+    if not numeric.empty:
+        grp = numeric.groupby(["model", "item_id", "call"])["v"]
+        sizes = grp.size()
+        spread = grp.max() - grp.min()
+        multi = spread[sizes >= 2]
+        panel["judges_per_call"] = float(sizes.mean())
+        panel["single_judge_calls"] = int((sizes < 2).sum())
+        panel["total_calls"] = int(len(sizes))
+        if not multi.empty:
+            panel["mean_spread"] = float(multi.mean())
+            panel["unanimous"] = float((multi == 0).mean())
+    return per_judge, panel
+
+
 def _behaviour_chart(behaviour: str, summary: dict, models: list[str], color_by_model: dict) -> go.Figure | None:
     metric = METRIC_OF[behaviour]
     rows = []
@@ -62,16 +162,18 @@ def _behaviour_chart(behaviour: str, summary: dict, models: list[str], color_by_
         mean = e["mean"]
         err_plus = max((hi - mean) if hi == hi else 0.0, 0.0)
         err_minus = max((mean - lo) if lo == lo else 0.0, 0.0)
-        rows.append((m, mean, err_plus, err_minus))
+        rows.append((m, mean, err_plus, err_minus, e.get("n_scored"), e.get("n_items")))
     if not rows:
         return None
 
     fig = go.Figure()
     fig.add_bar(
-        x=[r[0] for r in rows],
+        x=[f"{r[0]}<br><sub>n={r[4]}</sub>" for r in rows],
         y=[r[1] for r in rows],
         error_y=dict(type="data", array=[r[2] for r in rows], arrayminus=[r[3] for r in rows], visible=True),
         marker_color=[color_by_model[r[0]] for r in rows],
+        customdata=[[r[4], r[5]] for r in rows],
+        hovertemplate=f"%{{x}}<br>{metric} = %{{y:.2f}}<br>scored %{{customdata[0]}} of %{{customdata[1]}}<extra></extra>",
     )
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
@@ -124,6 +226,13 @@ judge_provider = st.sidebar.selectbox(
     help="All judge calls in one sweep are routed through a single provider.",
 )
 
+overlap = sorted(set(selected_judges) & {t["id"] for t in info["targets"] if t["label"] in selected_target_labels})
+if overlap:
+    st.sidebar.warning(
+        f"{', '.join(overlap)} is selected as both target and judge. It will grade its own "
+        "replies, and on a shared gateway both roles draw on one rate limit."
+    )
+
 language = st.sidebar.selectbox("Language", LANGUAGES, index=LANGUAGES.index(cfg.run.language))
 
 behaviour_label = {b: f"{b.replace('_', ' ').title()} ({METRIC_OF[b]})" for b in BEHAVIOURS}
@@ -142,6 +251,12 @@ st.sidebar.caption(
     "Mock mode is free and instant — every model gets the same canned reply, good for "
     "wiring/demo. Turn it off for a real, costed sweep; the selected providers' API keys "
     "must be set in .env."
+)
+
+st.sidebar.caption(
+    f"Throughput from config.yaml: {cfg.run.max_workers} workers, "
+    f"{cfg.run.requests_per_minute} requests/min. Exceeding a provider's limit returns "
+    "blank replies, not an error — watch the coverage panel after any change."
 )
 
 run_clicked = st.sidebar.button("Run benchmark", type="primary", width="stretch")
@@ -259,10 +374,24 @@ else:
     models = sorted({k.split("||")[0] for k in summary})
     behaviours_present = [b for b in BEHAVIOURS if any(f"{m}||{b}" in summary for m in models)]
 
+    raw_df = _read_csv(paths.get("raw_responses"))
+    judge_df = _read_csv(paths.get("judge_detail"))
+
     if not models:
         st.warning("No scored results in this run.")
     else:
         color_by_model = {m: CATEGORICAL[i % len(CATEGORICAL)] for i, m in enumerate(models)}
+        cov_frac, cov_label, shortfalls = _coverage_frames(summary, models, behaviours_present)
+
+        if shortfalls:
+            worst = sorted(shortfalls, key=lambda r: r[4])[:4]
+            detail = ", ".join(f"{m} {metric} {s}/{t}" for m, metric, s, t, _ in worst)
+            st.error(
+                f"{len(shortfalls)} model × behaviour cells scored fewer than "
+                f"{COVERAGE_OK:.0%} of their items: {detail}"
+                f"{' and others' if len(shortfalls) > len(worst) else ''}. "
+                "The scores below are computed only over the items that survived."
+            )
 
         st.subheader("Headline scores")
         head_rows = []
@@ -275,6 +404,83 @@ else:
         for k, v in DIRECTION.items():
             st.caption(f"**{k}**: {v}")
 
+        st.subheader("Coverage")
+        st.caption("Items scored out of items attempted. Read this before the means above — "
+                   "a cell scored on 3 of 16 items still prints a mean and a confidence interval.")
+        styled = _style_map(
+            cov_label.style.set_properties(**{"text-align": "center"}),
+            lambda _v: "",
+        )
+        for col in cov_frac.columns:
+            colors = cov_frac[col].map(_coverage_color)
+            styled = styled.apply(lambda _s, c=colors: c.values, subset=[col], axis=0)
+        st.dataframe(styled, width="stretch")
+
+        thin = [(m, METRIC_OF[b], summary[f"{m}||{b}"].get("n_scored"))
+                for m in models for b in behaviours_present
+                if f"{m}||{b}" in summary
+                and (summary[f"{m}||{b}"].get("n_scored") or 0) < MIN_N_FOR_CI]
+        if thin:
+            st.caption(
+                f"{len(thin)} cells have fewer than {MIN_N_FOR_CI} scored items. Bootstrap "
+                "intervals that narrow are an artefact of the sample, not agreement between judges."
+            )
+
+        st.subheader("Run health")
+        h1, h2 = st.columns(2)
+
+        with h1:
+            st.markdown("**Collection**")
+            if raw_df is not None and "reply" in raw_df.columns:
+                coll = _collection_health(raw_df)
+                st.dataframe(coll.style.format({
+                    "blank rate": "{:.1%}", "median reply chars": "{:.0f}",
+                }), width="stretch")
+                worst_blank = coll["blank rate"].max()
+                if worst_blank > BLANK_RATE_BAD:
+                    st.warning(
+                        f"Up to {worst_blank:.0%} of turns came back empty. Blank replies are "
+                        "scored as hedges rather than dropped. Lower requests_per_minute and "
+                        "max_workers in config.yaml, then re-run."
+                    )
+            else:
+                st.caption("No raw_responses.csv for this run.")
+
+        with h2:
+            st.markdown("**Judge panel**")
+            if judge_df is not None and "judge_model" in judge_df.columns:
+                per_judge, panel = _judge_health(judge_df)
+                st.dataframe(per_judge.style.format({"error rate": "{:.1%}"}), width="stretch")
+
+                bits = []
+                if panel.get("judges_per_call") is not None:
+                    bits.append(f"{panel['judges_per_call']:.2f} judges per scored call")
+                if panel.get("mean_spread") is not None:
+                    bits.append(f"mean spread {panel['mean_spread']:.3f}")
+                if panel.get("unanimous") is not None:
+                    bits.append(f"{panel['unanimous']:.1%} unanimous")
+                if bits:
+                    st.caption(" · ".join(bits))
+
+                single = panel.get("single_judge_calls") or 0
+                total = panel.get("total_calls") or 0
+                if single and total:
+                    st.warning(
+                        f"{single} of {total} scored calls got only one judge. Spread and "
+                        "unanimity are computed over the rest; a single judge always agrees "
+                        "with itself."
+                    )
+                if not per_judge.empty and (per_judge["error rate"] > JUDGE_ERROR_BAD).any():
+                    bad = per_judge[per_judge["error rate"] > JUDGE_ERROR_BAD]
+                    st.warning(
+                        "High error rate: "
+                        + ", ".join(f"{i} ({r['error rate']:.0%})" for i, r in bad.iterrows())
+                        + ". Check the id is served by the judge provider and that the panel "
+                          "is not over its rate limit."
+                    )
+            else:
+                st.caption("No judge_detail.csv for this run.")
+
         st.subheader("Per-behaviour detail")
         for b in behaviours_present:
             fig = _behaviour_chart(b, summary, models, color_by_model)
@@ -286,11 +492,16 @@ else:
                 extras = _behaviour_extras(b, summary, models)
                 if extras is not None:
                     st.dataframe(extras, width="stretch")
+                if b == "revision_under_pressure":
+                    st.caption("Flip, stable and recovery rates cover only items answered "
+                               "correctly at turn 1. Read them beside baseline accuracy.")
+                if b == "attribution_bias":
+                    st.caption("A blank rating delta means no 'Rating: X/10' line was found in "
+                               "the reply, not that the model rated both versions equally.")
 
         st.subheader("Item explorer")
-        item_scores_path = paths.get("item_scores")
-        if item_scores_path and item_scores_path.exists():
-            scores_df = pd.read_csv(item_scores_path)
+        scores_df = _read_csv(paths.get("item_scores"))
+        if scores_df is not None:
             c1, c2 = st.columns(2)
             with c1:
                 model_filter = st.multiselect(
@@ -302,13 +513,24 @@ else:
                     "Filter: behaviour", sorted(scores_df["behaviour"].dropna().unique()),
                     default=sorted(scores_df["behaviour"].dropna().unique()),
                 )
+            unscored_only = st.checkbox(
+                "Show only items with no score",
+                value=False,
+                help="Items dropped before aggregation — the ones missing from the means above.",
+            )
             filtered = scores_df[
                 scores_df["model"].isin(model_filter) & scores_df["behaviour"].isin(behaviour_filter)
-            ].reset_index(drop=True)
-            st.dataframe(filtered.drop(columns=["detail_json"], errors="ignore"),
-                         width="stretch", height=280)
+            ]
+            if unscored_only and "score" in filtered.columns:
+                filtered = filtered[filtered["score"].isna()]
+            filtered = filtered.reset_index(drop=True)
 
-            if not filtered.empty:
+            if filtered.empty:
+                st.caption("Nothing matches these filters.")
+            else:
+                st.dataframe(filtered.drop(columns=["detail_json"], errors="ignore"),
+                             width="stretch", height=280)
+
                 option_labels = [f"{r.model} · {r.behaviour} · {r.item_id}" for r in filtered.itertuples()]
                 pick = st.selectbox("Inspect item", option_labels)
                 pick_row = filtered.iloc[option_labels.index(pick)]
@@ -321,20 +543,17 @@ else:
                         except json.JSONDecodeError:
                             pass
 
-                    raw_path = paths.get("raw_responses")
-                    if raw_path and raw_path.exists():
-                        raw_df = pd.read_csv(raw_path)
+                    if raw_df is not None:
                         item_raw = raw_df[
                             (raw_df["model"] == pick_row["model"]) & (raw_df["item_id"] == pick_row["item_id"])
                         ]
                         if not item_raw.empty:
                             st.markdown("**Prompt / reply turns**")
-                            st.dataframe(item_raw[["condition", "turn_index", "turn", "reply", "error"]],
-                                         width="stretch", height=200)
+                            shown = item_raw[["condition", "turn_index", "turn", "reply", "error"]].copy()
+                            shown["reply chars"] = shown["reply"].fillna("").astype(str).str.len()
+                            st.dataframe(shown, width="stretch", height=200)
 
-                    judge_path = paths.get("judge_detail")
-                    if judge_path and judge_path.exists():
-                        judge_df = pd.read_csv(judge_path)
+                    if judge_df is not None:
                         item_judge = judge_df[
                             (judge_df["model"] == pick_row["model"]) & (judge_df["item_id"] == pick_row["item_id"])
                         ]
