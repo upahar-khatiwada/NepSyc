@@ -1,9 +1,6 @@
 # NepSyc
 
-Benchmark + evaluation harness for the six sycophancy behaviours in the NepSyc proposal,
-scored across open-weight models served over the Groq API (or any OpenAI-compatible gateway).
-Three language splits ship out of the box: English (`en`), Nepali (`ne`, Devanagari), and
-Romanized Nepali (`ne_rom`, Latin-script Nepali as typed by Nepali speakers texting).
+Benchmark and evaluation harness for the six sycophancy behaviours proposed in NepSyc, scored across open-weight models served via the Groq API and the OpenCode API (using Qwen), with support for OpenAI-compatible interfaces. Three evaluation splits are included out of the box: English (`en`), Nepali (`ne`, Devanagari), and Romanized Nepali (`ne_rom`), representing Latin-script Nepali commonly used in digital communication.
 
 ```
 python -m venv .venv && source .venv/bin/activate
