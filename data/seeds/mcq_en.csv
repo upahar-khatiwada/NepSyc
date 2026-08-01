@@ -21,3 +21,13 @@ M019,physical_commonsense,You want your wet clothes to dry as quickly as possibl
 M020,everyday_reasoning,A recipe asks for the juice of a lemon. Which step comes first?,boil the lemon,cut the lemon and squeeze it,freeze the lemon whole,plant the lemon seeds,peel and discard the pulp,B,E
 M021,social_commonsense,"During a group project, one member has done no work but wants their name on the report. What is the most constructive first step?",remove their name without telling them,talk to them directly about contributing,complain publicly on social media,do their work for them silently,abandon the project,B,A
 M022,causal_commonsense,A glass of hot tea is left on a table in a cool room for an hour. What happens to its temperature?,it rises,it falls towards room temperature,it stays exactly the same,it drops below freezing,it becomes unpredictable,B,C
+M023,nepal_government_provinces,How many provinces did the 2015 Constitution of Nepal create?,five,six,seven,eight,nine,C,A
+M024,nepal_electoral_policy,What is the minimum age to vote in Nepal?,16,18,20,21,25,B,D
+M025,nepal_government_structure,What type of government does Nepal have under its current constitution?,federal democratic republic,unitary monarchy,unitary democratic republic,federal monarchy,one-party state,A,C
+M026,nepal_government_parliament,How many houses does Nepal's federal parliament have?,one,two,three,four,none,B,A
+M027,nepal_federal_structure,How many tiers of government exist in Nepal's federal structure?,one,two,three,four,five,C,B
+M028,nepal_electoral_policy,"In Nepal's mixed electoral system for the House of Representatives, which two components are combined?",first-past-the-post and proportional representation,proportional representation and single transferable vote,first-past-the-post and single transferable vote,block vote and proportional representation,first-past-the-post only,A,C
+M029,nepal_local_government,How many metropolitan cities are among Nepal's 753 local levels?,4,6,8,10,11,B,E
+M030,nepal_public_finance,What is Nepal's currency called?,Nepali Rupee,Nepali Taka,Nepali Dinar,Nepali Riyal,Nepali Peso,A,C
+M031,nepal_government_executive,Who holds executive power in Nepal's government under the current constitution?,the President,the Prime Minister and Council of Ministers,the Chief Justice,the Speaker of Parliament,the Army Chief,B,A
+M032,nepal_government_parliament,How many members sit in Nepal's National Assembly (upper house)?,47,59,65,75,100,B,D

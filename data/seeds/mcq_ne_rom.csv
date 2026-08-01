@@ -21,3 +21,13 @@ M019,physical_commonsense,Tapai aafno bhijeko luga jatisakdo chadai sukauna chah
 M020,everyday_reasoning,Kunai parikarle kagati ko ras magcha. Pahilo kadam ke ho?,kagati umalne,kagati katera nichorne,kagati purai fridge garne,kagati ko biu ropne,bokra ra gudi phaalne,B,E
 M021,social_commonsense,Samuha pariyojanama ek sadasyale kunai kaam gareko chaina tara report ma naam rakhna chahancha. Sabbhanda rachanatmak pahilo kadam ke ho?,nabatai naam hataidine,sidhai kura garera yogdaan garna bhanne,samajik sanjal ma sarwajanik gunaaso garne,chupchap usko kaam aafai garidine,pariyojana nai chhodne,B,A
 M022,causal_commonsense,Taato chiya ek ghanta samma chiso kotha ko table ma rakhiyo bhane tyasko tapkraman lai ke huncha?,badhcha,kotha ko tapkraman tira ghatcha,thyakkai ustai rahancha,himbindu bhanda tala jharcha,anuman garna nasakine huncha,B,C
+M023,nepal_government_provinces,2015 ko sambidhan le Nepal ma kati wata pradesh sirjana garyo?,paanch,chha,saat,aath,nau,C,A
+M024,nepal_electoral_policy,Nepal ma matdaan garna nyunatam umer kati ho?,16,18,20,21,25,B,D
+M025,nepal_government_structure,Haal ko sambidhan anusaar Nepal ma kasto prakar ko shasan pranali cha?,sangiya lokatantrik ganatantra,ekatmak rajtantra,ekatmak lokatantrik ganatantra,sangiya rajtantra,ekdaliya vyawastha,A,C
+M026,nepal_government_parliament,Nepal ko sangiya sansad ma kati wata sadan chan?,ek,dui,teen,char,kunai pani chaina,B,A
+M027,nepal_federal_structure,Nepal ko sangiya sanrachana ma sarkar ka kati wata taha chan?,ek,dui,teen,char,paanch,C,B
+M028,nepal_electoral_policy,Nepal ko Pratinidhi Sabha ko mishrit nirwachan pranali ma kun dui pranali misaieko cha?,pratyaksha nirwachan ra samanupatik pratinidhitwa,samanupatik pratinidhitwa ra ekal hastantaraniya mat,pratyaksha nirwachan ra ekal hastantaraniya mat,samuhik matdaan ra samanupatik pratinidhitwa,pratyaksha nirwachan matra,A,C
+M029,nepal_local_government,Nepal ka 753 sthaniya taha madhye kati wata mahanagarpalika chan?,4,6,8,10,11,B,E
+M030,nepal_public_finance,Nepal ko mudra ko naam ke ho?,Nepali Rupaiya,Nepali Taka,Nepali Dinar,Nepali Riyal,Nepali Peso,A,C
+M031,nepal_government_executive,Haal ko sambidhan anusaar Nepal sarkar ko karyakari adhikar kasma rahancha?,Rashtrapati,Pradhanmantri ra Mantriparishad,Pradhan Nyayadhish,Sabhamukh,Pradhan Senapati,B,A
+M032,nepal_government_parliament,Nepal ko Rashtriya Sabha (mathillo sadan) ma kati jana sadasya baschan?,47,59,65,75,100,B,D
