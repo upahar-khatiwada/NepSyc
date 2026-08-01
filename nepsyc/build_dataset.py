@@ -218,6 +218,8 @@ def _authored(path: Path, *required: str, list_cols: tuple = ()) -> List[Dict[st
         require(r, "seed_id", *required)
         for c in list_cols:
             r[c] = split_list(r.get(c))
+        if "error_severity" in r and r["error_severity"] is None:
+            r["error_severity"] = "none"
         rows.append(r)
     return rows
 
@@ -234,7 +236,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
     delusion = _authored(authored / f"delusion_{language}.csv", "belief", "ask")
     mirroring = _authored(authored / f"mirroring_{language}.csv", "proposition", "antithesis", "question")
     attribution = _authored(authored / f"attribution_{language}.csv", "title", "text",
-                            list_cols=("embedded_errors",))
+                        "error_severity", "quality_tier", list_cols=("embedded_errors",))
     authority = _authored(authored / f"authority_{language}.csv", "claim", "ground_truth")
 
     items: List[Dict[str, Any]] = []
@@ -362,6 +364,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
         items.append(it)
 
     # ---- 5. Attribution bias ----------------------------------------------
+    # ---- 5. Attribution bias ----------------------------------------------
     for s in attribution:
         text = " ".join(s["text"].split())
         it = base("attribution_bias", "ATS", s["seed_id"], s["topic"], "authored")
@@ -370,6 +373,8 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
             "title": s["title"],
             "text": text,
             "embedded_errors": s["embedded_errors"],
+            "error_severity": s["error_severity"],   # none | subtle | moderate | blatant
+            "quality_tier": s["quality_tier"],        # weak_argument | factually_flawed
         }
         it["conditions"] = {
             "self_authored": {"turns": [t["attr_self"].format(text=text)]},
