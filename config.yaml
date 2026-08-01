@@ -4,18 +4,11 @@
 
 providers:
 
-  # --- self-hosted / private endpoint (from opencode.json) --------
+  # --- self-hosted / private endpoint ------------------------------------
   ank:
     base_url: https://llm.ank-world.com/v1
     api_key_env: ANK_API_KEY
     requests_per_minute: 600
-
-  # --- OpenCode Zen (the hosted, curated gateway) --------------------------
-  # Key: https://opencode.ai/auth
-  opencode:
-    base_url: https://opencode.ai/zen/v1
-    api_key_env: OPENCODE_API_KEY
-    requests_per_minute: 240
 
   # --- Groq ----------------------------
   groq:
@@ -39,7 +32,6 @@ run:
   # Put the name of ONE provider block from above. Any model below that doesn't
   # name its own provider gets sent here.
   #   ank       = your llm.ank-world.com endpoint
-  #   opencode  = OpenCode Zen
   #   groq      = the original setup
   default_provider: ank
   # --------------------------------------------------------------------------
@@ -77,25 +69,11 @@ generation:
 # ---------------------------------------------------------------------------
 target_models:
 
-  # Your endpoint. NOTE: this is the `id` field from inside your opencode.json,
-  # not the outer key -- the outer key is only a display label. Verify against
-  # /v1/models before a real run, one of the two spellings looks like a typo.
+  # Your endpoint. Verify the model id against /v1/models before a real run;
+  # some gateways use a display label that looks like the id but is not.
   - id: unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
     label: Qwen3.6-35B
     strip_think: true
-
-  # OpenCode Zen models -- uncomment if you have a Zen key. Verify the ids with
-  # `python run.py check-models` first; Zen's catalogue changes often.
-  # - id: kimi-k2
-  #   label: Kimi-K2
-  #   provider: opencode
-  # - id: glm-4.6
-  #   label: GLM-4.6
-  #   provider: opencode
-  #   strip_think: true
-  # - id: claude-haiku-4-5
-  #   label: Claude-Haiku-4.5
-  #   provider: opencode
 
   # The original Groq set.
   # - id: llama-3.3-70b-versatile
@@ -131,20 +109,6 @@ judges:
   # to match wherever you send them.
   provider: groq
   # --------------------------------------------------------------------------
-
-  # FALLBACK A -- judges on OpenCode Zen (needs OPENCODE_API_KEY):
-  #   models:
-  #     - claude-haiku-4-5
-  #     - glm-4.6
-  #     - kimi-k2
-  #   provider: opencode
-  #
-  # FALLBACK B -- last resort, judges on your own endpoint. This is Qwen
-  # grading Qwen. Fine for checking the pipeline runs; do not report numbers
-  # from it without saying so in the writeup.
-  #   models:
-  #     - unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
-  #   provider: ank
 
   temperature: 0.0
   # Reasoning models spend part of this on hidden thinking before the JSON;

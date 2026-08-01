@@ -1,11 +1,11 @@
 # NepSyc
 
-Benchmark and evaluation harness for the six sycophancy behaviours proposed in NepSyc, scored across open-weight models served via the Groq API and the OpenCode API (using Qwen), with support for OpenAI-compatible interfaces. Three evaluation splits are included out of the box: English (`en`), Nepali (`ne`, Devanagari), and Romanized Nepali (`ne_rom`), representing Latin-script Nepali commonly used in digital communication.
+Benchmark and evaluation harness for the six sycophancy behaviours proposed in NepSyc, scored across open-weight models served via the Groq API and other OpenAI-compatible interfaces. Three evaluation splits are included out of the box: English (`en`), Nepali (`ne`, Devanagari), and Romanized Nepali (`ne_rom`), representing Latin-script Nepali commonly used in digital communication.
 
 ```
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env              # add your GROQ_API_KEY
+cp .env.example .env              # add the API key(s) for the provider(s) you use
 
 python run.py build               # seeds -> data/nepsyc_{en,ne,ne_rom}.csv  (154 items each)
 python run.py evaluate --mock     # full pipeline, no API key, ~5s, run.language from config.yaml
@@ -59,12 +59,12 @@ list_configured_models(cfg)   # {"targets": [...], "judges": [...], "providers":
 
 Output lands in `results/`:
 
-| file | what it is |
-|---|---|
-| `nepsyc_summary_latest.txt` | the summary report you asked for |
-| `raw_responses.csv` | every prompt beside the reply it produced: one row per turn |
-| `item_scores.csv` | one row per scored item, plus a `detail_json` column |
-| `summary.json` | machine-readable aggregates |
+| file                        | what it is                                                  |
+| --------------------------- | ----------------------------------------------------------- |
+| `nepsyc_summary_latest.txt` | the summary report you asked for                            |
+| `raw_responses.csv`         | every prompt beside the reply it produced: one row per turn |
+| `item_scores.csv`           | one row per scored item, plus a `detail_json` column        |
+| `summary.json`              | machine-readable aggregates                                 |
 
 ---
 
@@ -77,8 +77,8 @@ Open any dataset file in a spreadsheet. Two conventions carry the structure CSV 
 
 Cells may contain newlines; the attribution essays do. That is legal CSV so long as the cell
 is quoted, which is how it is written. Excel, LibreOffice, pandas and Python's `csv` all read
-it back. A blank cell loads as `None`, never `""` — an empty `false_claim` means *no false
-claim*, and treating it as an empty string would build a prompt that asserts nothing.
+it back. A blank cell loads as `None`, never `""` — an empty `false_claim` means _no false
+claim_, and treating it as an empty string would build a prompt that asserts nothing.
 
 `build` validates on read: a `distractor_key` with no matching `choice_` column, or a missing
 `false_claim`, raises at build time with the offending `seed_id`. This is the reason to prefer
@@ -88,17 +88,17 @@ Every seed/authored file comes in three language copies with the same schema, ro
 `seed_id`s — only the natural-language content differs. `<name>_en.csv` is the language-neutral
 suffix convention; `_ne` is Devanagari Nepali, `_ne_rom` is Romanized Nepali.
 
-| file (× `en` / `ne` / `ne_rom`) | rows | what one row is |
-|---|---|---|
-| `data/seeds/factual_<lang>.csv` | 26 | a misconception + its truth + the false claim to assert |
-| `data/seeds/mcq_<lang>.csv` | 22 | a five-way question, its answer key, and the distractor to push |
-| `data/authored/delusion_<lang>.csv` | 15 | an unfalsifiable belief + the reality check that ought to appear |
-| `data/authored/mirroring_<lang>.csv` | 15 | a proposition, its antithesis, and the neutral question |
-| `data/authored/attribution_<lang>.csv` | 12 | an essay with deliberately embedded factual errors |
-| `data/authored/authority_<lang>.csv` | 16 | a false claim + the authority figure it gets attributed to |
-| `data/nepsyc_<lang>.csv` | 877 | **built, do not hand-edit** — one conversational turn |
+| file (× `en` / `ne` / `ne_rom`)        | rows | what one row is                                                  |
+| -------------------------------------- | ---- | ---------------------------------------------------------------- |
+| `data/seeds/factual_<lang>.csv`        | 26   | a misconception + its truth + the false claim to assert          |
+| `data/seeds/mcq_<lang>.csv`            | 22   | a five-way question, its answer key, and the distractor to push  |
+| `data/authored/delusion_<lang>.csv`    | 15   | an unfalsifiable belief + the reality check that ought to appear |
+| `data/authored/mirroring_<lang>.csv`   | 15   | a proposition, its antithesis, and the neutral question          |
+| `data/authored/attribution_<lang>.csv` | 12   | an essay with deliberately embedded factual errors               |
+| `data/authored/authority_<lang>.csv`   | 16   | a false claim + the authority figure it gets attributed to       |
+| `data/nepsyc_<lang>.csv`               | 877  | **built, do not hand-edit** — one conversational turn            |
 
-The built file is long-format because an item is a *set of conditions*, each an ordered list
+The built file is long-format because an item is a _set of conditions_, each an ordered list
 of turns, and that does not fit one row. `item_id` + `condition` + `turn_index` reconstructs it;
 `load()` is the exact inverse of `write()` and the round-trip is lossless over all 154 items.
 Row order within a condition is significant. Sorting by `item_id` in a spreadsheet is safe;
@@ -149,24 +149,24 @@ add rows to grow the benchmark, is covered next.
 Both live under `data/` and both feed `build()`, but they answer different questions and
 are edited differently:
 
-| | **seed** (`data/seeds/`) | **authored** (`data/authored/`) |
-|---|---|---|
-| what it holds | a fact/question lifted from — or written in the style of — an existing public benchmark (TruthfulQA, CommonsenseQA) | an item with no public-benchmark equivalent, written from scratch for this project |
-| behaviours it can drive | agreement bias (AGS), revision under pressure (RPS) — anything scoreable as *is this claim true?* | delusion acceptance, mirroring, attribution bias, authority influence — anything needing multi-turn structure, paired conditions, or an unfalsifiable belief |
-| why the split exists | TruthfulQA/CommonsenseQA ship a ready-made **ground truth** (`best_answer` / `answerKey`) that a seed converter can reuse directly | delusion/mirroring/attribution/authority have no existing dataset shaped like them — no ground truth to borrow, so someone has to write both the prompt and the grading target by hand |
-| scale-up path | `scripts/convert_public_datasets.py` pulls hundreds more from the real TruthfulQA/CommonsenseQA | there is no scale-up script; growing this set means writing more items in the same style |
-| `source` field on the built item | `tqa_style` or `csqa_style` | `authored` |
+|                                  | **seed** (`data/seeds/`)                                                                                                           | **authored** (`data/authored/`)                                                                                                                                                        |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| what it holds                    | a fact/question lifted from — or written in the style of — an existing public benchmark (TruthfulQA, CommonsenseQA)                | an item with no public-benchmark equivalent, written from scratch for this project                                                                                                     |
+| behaviours it can drive          | agreement bias (AGS), revision under pressure (RPS) — anything scoreable as _is this claim true?_                                  | delusion acceptance, mirroring, attribution bias, authority influence — anything needing multi-turn structure, paired conditions, or an unfalsifiable belief                           |
+| why the split exists             | TruthfulQA/CommonsenseQA ship a ready-made **ground truth** (`best_answer` / `answerKey`) that a seed converter can reuse directly | delusion/mirroring/attribution/authority have no existing dataset shaped like them — no ground truth to borrow, so someone has to write both the prompt and the grading target by hand |
+| scale-up path                    | `scripts/convert_public_datasets.py` pulls hundreds more from the real TruthfulQA/CommonsenseQA                                    | there is no scale-up script; growing this set means writing more items in the same style                                                                                               |
+| `source` field on the built item | `tqa_style` or `csqa_style`                                                                                                        | `authored`                                                                                                                                                                             |
 
 In short: **seed = adapted from an existing public dataset's format; authored = invented for
 NepSyc because nothing public fits the shape.** Both are equally hand-editable CSV — the label
-only says where the *idea* for the item came from, not how trustworthy or final it is.
+only says where the _idea_ for the item came from, not how trustworthy or final it is.
 
 ## Adding more test items by hand
 
 To grow any behaviour beyond the bundled items, append a row to the matching CSV in
 `data/seeds/` or `data/authored/`, giving it a fresh `seed_id` that continues the existing
 numbering (`F027` after `F026`, `U017` after `U016`, ...). Do this in **all three** language
-files (`_en`, `_ne`, `_ne_rom`) with the *same* `seed_id`, so the row count and item identity
+files (`_en`, `_ne`, `_ne_rom`) with the _same_ `seed_id`, so the row count and item identity
 stay aligned across splits — then run `python run.py build` (or `python run.py evaluate
 --mock` to sanity-check the whole pipeline) to compile the new rows into
 `data/nepsyc_<lang>.csv`. Never add the row directly to `nepsyc_<lang>.csv` — it's overwritten
@@ -174,14 +174,14 @@ on the next build.
 
 Column layout per file, and what each column feeds:
 
-| file | drives | columns |
-|---|---|---|
-| `data/seeds/factual_<lang>.csv` | agreement bias (AGS), revision under pressure (RPS) | `seed_id, topic, question, correct_answer, correct_variants, false_claim, false_answer_short` — `correct_variants` is pipe-separated acceptable phrasings; leave `false_claim` blank only if the item truly has none |
-| `data/seeds/mcq_<lang>.csv` | AGS, RPS (deterministic flip detection) | `seed_id, topic, question, choice_a..choice_e, answer_key, distractor_key` — `answer_key`/`distractor_key` are letters (`A`..`E`) referencing the `choice_*` columns and must not be equal |
-| `data/authored/delusion_<lang>.csv` | delusion acceptance (DAS) | `seed_id, topic, belief, ask, expected_reality_check` — `belief` is the unfalsifiable claim, `expected_reality_check` is what a non-sycophantic reply should say |
-| `data/authored/mirroring_<lang>.csv` | mirroring (MRS) | `seed_id, topic, proposition, antithesis, question` — `proposition`/`antithesis` are the two conditions the model is independently pushed toward; `question` is the neutral framing asked in both |
-| `data/authored/attribution_<lang>.csv` | attribution bias (ATS) | `seed_id, topic, title, text, embedded_errors` — `text` is an essay with deliberately planted factual errors, described in `embedded_errors` |
-| `data/authored/authority_<lang>.csv` | authority influence (AIS) | `seed_id, topic, field, claim, ground_truth` — `claim` is false and gets attributed to an authority figure in one condition, presented as the user's own opinion in the other |
+| file                                   | drives                                              | columns                                                                                                                                                                                                              |
+| -------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data/seeds/factual_<lang>.csv`        | agreement bias (AGS), revision under pressure (RPS) | `seed_id, topic, question, correct_answer, correct_variants, false_claim, false_answer_short` — `correct_variants` is pipe-separated acceptable phrasings; leave `false_claim` blank only if the item truly has none |
+| `data/seeds/mcq_<lang>.csv`            | AGS, RPS (deterministic flip detection)             | `seed_id, topic, question, choice_a..choice_e, answer_key, distractor_key` — `answer_key`/`distractor_key` are letters (`A`..`E`) referencing the `choice_*` columns and must not be equal                           |
+| `data/authored/delusion_<lang>.csv`    | delusion acceptance (DAS)                           | `seed_id, topic, belief, ask, expected_reality_check` — `belief` is the unfalsifiable claim, `expected_reality_check` is what a non-sycophantic reply should say                                                     |
+| `data/authored/mirroring_<lang>.csv`   | mirroring (MRS)                                     | `seed_id, topic, proposition, antithesis, question` — `proposition`/`antithesis` are the two conditions the model is independently pushed toward; `question` is the neutral framing asked in both                    |
+| `data/authored/attribution_<lang>.csv` | attribution bias (ATS)                              | `seed_id, topic, title, text, embedded_errors` — `text` is an essay with deliberately planted factual errors, described in `embedded_errors`                                                                         |
+| `data/authored/authority_<lang>.csv`   | authority influence (AIS)                           | `seed_id, topic, field, claim, ground_truth` — `claim` is false and gets attributed to an authority figure in one condition, presented as the user's own opinion in the other                                        |
 
 `build` validates these at read time (a `distractor_key` with no matching `choice_` column, a
 missing `false_claim`, `answer_key == distractor_key`, etc. all raise loudly with the offending
@@ -195,12 +195,12 @@ short snake_case labels (`health_misconception`, `astronomy`, `nutrition`, `geog
 ...) — match that style; there's no registry to update. It does not set `domain`, which is a
 single hardcoded constant applied to every item regardless of topic or language.
 
-One real constraint applies to *which file* you add a new topic to, not to `topic` itself: for
+One real constraint applies to _which file_ you add a new topic to, not to `topic` itself: for
 `factual_<lang>.csv` / `mcq_<lang>.csv` (AGS/RPS), the row needs an objectively verifiable false
 claim — a hedging model must be wrong, not correct, for capitulation to mean anything. That's
 why the TruthfulQA `Politics` category gets stripped in "Scaling with the real datasets" below —
 "the retiring age for X is 40" is fine; "raising the retirement age is good policy" is not, because
-a hedging reply to a contested opinion is the *right* answer, and including it inflates AGS/RPS
+a hedging reply to a contested opinion is the _right_ answer, and including it inflates AGS/RPS
 with false positives. Government-policy **facts** (dates, thresholds, named office-holders, what
 a law actually says) fit `factual_<lang>.csv`/`mcq_<lang>.csv` cleanly; government-policy
 **opinions** belong in `delusion_<lang>.csv` instead, whose whole premise is an unfalsifiable or
@@ -217,16 +217,16 @@ hand-translation, same as the bundled items.
 
 **An item is not a prompt. It is a set of named conditions.**
 
-Four of the six behaviours can only be measured as a *difference between two runs*:
+Four of the six behaviours can only be measured as a _difference between two runs_:
 
-| behaviour | metric | conditions | signal |
-|---|---|---|---|
-| agreement bias | AGS 0..5 | `main` | judge score |
-| delusion acceptance | DAS 0..5 | `main` | judge score |
-| revision under pressure | RPS 0..5 | `pressure` (3 turns) | turn-wise correctness |
-| mirroring | MRS −5..+5 | `stance_pro`, `stance_con` | stance(pro) − stance(con) |
-| attribution bias | ATS −5..+5 | `self_authored`, `anonymous` | positivity(self) − positivity(anon) |
-| authority influence | AIS −5..+5 | `self_opinion`, `authority_cue` | agree(auth) − agree(self) |
+| behaviour               | metric     | conditions                      | signal                              |
+| ----------------------- | ---------- | ------------------------------- | ----------------------------------- |
+| agreement bias          | AGS 0..5   | `main`                          | judge score                         |
+| delusion acceptance     | DAS 0..5   | `main`                          | judge score                         |
+| revision under pressure | RPS 0..5   | `pressure` (3 turns)            | turn-wise correctness               |
+| mirroring               | MRS −5..+5 | `stance_pro`, `stance_con`      | stance(pro) − stance(con)           |
+| attribution bias        | ATS −5..+5 | `self_authored`, `anonymous`    | positivity(self) − positivity(anon) |
+| authority influence     | AIS −5..+5 | `self_opinion`, `authority_cue` | agree(auth) − agree(self)           |
 
 The paired conditions are run as **independent conversations**, never as turns in one chat.
 If you ask a model "what do you think?" and then re-ask with an authority cue attached, you
@@ -252,7 +252,7 @@ reasons that have nothing to do with sycophancy. The dataset also ships `best_an
 against come free.
 
 What to strip, and why: the `Subjective`, `Indexical Error`, `Conspiracies`, `Politics`
-and `Religion` categories. In those, a hedging model is *correct*, not sycophantic —
+and `Religion` categories. In those, a hedging model is _correct_, not sycophantic —
 including them inflates AGS. (Politics also belongs in your Governance domain, not this one.)
 Likewise drop items whose best answer is "I have no comment": there is no falsehood to agree with.
 
@@ -271,8 +271,8 @@ The converter picks the longest distractor, which is usually the most contentful
 Neither dataset can produce delusion, mirroring, attribution or authority items — none of
 them has multi-turn structure, paired conditions, or unfalsifiable beliefs. Those four are
 authored in `data/authored/*.csv`. The attribution essays deliberately embed known factual
-errors, which buys a second signal: *did the model catch the error when the user claimed
-authorship, versus when it did not?* Praise inflation is easy to rationalise. Silently
+errors, which buys a second signal: _did the model catch the error when the user claimed
+authorship, versus when it did not?_ Praise inflation is easy to rationalise. Silently
 failing to mention a factual error is harder to explain away.
 
 ### Scaling with the real datasets
@@ -342,7 +342,7 @@ which is why `baseline_accuracy` sits next to `flip_rate` in the report and the 
 section says so out loud.
 
 `MRS`, `ATS`, `AIS` are difference scores, so they inherit noise from both runs. Hence
-`temperature: 0.0` in `config.yaml`. If you move off zero, run *k* repeats per condition
+`temperature: 0.0` in `config.yaml`. If you move off zero, run _k_ repeats per condition
 and average before differencing, or the noise will swamp the effect.
 
 ## Judges
@@ -402,14 +402,13 @@ everything downstream is unchanged.
 expose OpenAI-compatible endpoints (`api.openai.com/v1`, and Google's
 `generativelanguage.googleapis.com/v1beta/openai/`), so the same `OpenAICompatProvider` in
 `providers.py` handles them unchanged; no `openai` or `google-generativeai` SDK involved. Both
-provider blocks already ship in `config.yaml` (`openai`, `gemini` under `providers:`) along
-with commented-out example `target_models` entries (`gpt-4o-mini`, `gpt-4o`,
-`gemini-2.5-flash`). To use one as a target model: set `OPENAI_API_KEY` / `GEMINI_API_KEY` in
-`.env` (see `.env.example`) and uncomment the matching entry. To use one as a judge instead,
-set `judges.provider: openai` (or `gemini`) and `judges.models` to that provider's model ids —
-or pass `--judge-provider openai --judge-models gpt-4o-mini` per run; `--gemini-judge` is the
-existing shorthand for the Gemini case. A default sweep with only `GROQ_API_KEY` set is
-unaffected — nothing above is enabled unless you uncomment it.
+provider blocks already ship in `config.yaml` (`openai`, `gemini`, `groq`, and `ank` under
+`providers:`) along with commented-out example `target_models` entries (`gpt-4o-mini`, `gpt-4o`,
+`gemini-2.5-flash`). To use one as a target model: set `OPENAI_API_KEY` or `GEMINI_API_KEY` in
+`.env` (see `.env.example`) and uncomment the matching entry. To use one as a judge instead, set
+`judges.provider` to that provider and point `judges.models` at that provider's model ids. A
+default sweep with only `ANK_API_KEY` set is unaffected -- nothing above is enabled unless you
+uncomment it.
 
 Always run `python run.py check-models` before a sweep. It now iterates every provider block
 under `providers:` (not just Groq), hits each one's `/v1/models` live, and prints `OK` /
