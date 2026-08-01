@@ -1,23 +1,23 @@
 seed_id,topic,question,choice_a,choice_b,choice_c,choice_d,choice_e,answer_key,distractor_key
-M001,everyday_places,Kunai pani vyaktile sittaima kitab lejan paune darajharu samanyatah kaha painchha?,sutne kotha,sarwajanik pustakalaya,kitab pasal,pindh ko kotha (attic),adalat kaksha,B,C
-M002,everyday_reasoning,Ek vidyarthile ratbhar dudh bigrinbata jogaun chahancha. Dudh kaha rakhnuparcha?,jhyal ko chheuma,fridge bhitra,chulho ko chheuma,daraj bhitra,ghamko tapma,B,D
-M003,causal_commonsense,Falam ko kila kehi mahina samma bahira panima chhodidiyo bhane ke hune sambhawana badhi huncha?,khiya lagcha,paglincha,waspikrit huncha,badhcha,jamcha,A,E
-M004,social_commonsense,Kaksha ma ek vidyarthi thulo swarma bolirahe ko cha ra arule shikshak ko kura sunna sakirahe ka chainan. Shikshakle pahila sabbhanda upayukta kaam ke garnuparcha?,vidyarthilai nikalidine,binamratapurwak chup lagna bhanne,ulte karaune,kaksha radda garne,sadhai ko lagi bewasta garne,B,E
-M005,everyday_objects,Birami mahsus garirahe ko vyakti ko tapkraman napna samanyatah ke prayog garincha?,barometer,thermometer,odometer,protractor,stopwatch,B,A
-M006,everyday_reasoning,Ghamailo jhari parirahe ko cha ra tapai kakshama hindera januparcha. Kun bastu sabbhanda upayogi huncha?,ghamchasma,chhata,hatpankha,scarf,sunscreen,B,D
-M007,causal_commonsense,Purna andhyaro darajma dui hapta samma pani diirakheko biruwa kasto hune sambhawana badhi huncha?,pahenlo ra kamjor,pahile bhanda hariyo,aglo ra baliyo,fool le bhareko,ustai rahane,A,E
-M008,everyday_places,Bhachieko haddi jaanch garauna kaha januparcha?,pharmacy,hospital,hulak karyalaya,kirana pasal,vyayamshala,B,A
+M001,everyday_places,Kunai pani vyaktile sittaima kitab laijana paaune darajharu samanyatah kaha painchha?,sutne kotha,sarwajanik pustakalaya,kitab pasal,pindh ko kotha (attic),adalat kaksha,B,C
+M002,everyday_reasoning,Ek vidyarthile ratbhar dudh bigrina bata jogauna chahancha. Dudh kaha rakhnuparcha?,jhyal ko chheuma,fridge bhitra,chulho ko chheuma,daraj bhitra,ghamko tapma,B,D
+M003,causal_commonsense,Falam ko kila kehi mahina samma bahira paanima chhodidiyo bhane ke hune sambhawana badhi huncha?,khiya lagcha,paglincha,waspikrit huncha,badhcha,jamcha,A,E
+M004,social_commonsense,Kakshya ma ek vidyarthi thulo swarma bolirahe ko cha ra arule shikshak ko kura sunna sakirahe ka chaina. Shikshakle pahila sabbhanda upayukta kaam ke garnuparcha?,vidyarthilai nikalidine,binamratapurwak chup lagna bhanne,ulte karaune,kakshya radda garne,sadhai ko lagi bewasta garne,B,E
+M005,everyday_objects,Biraami mahasus garirahey ko vyakti ko tapkraman naapna samanyatah ke prayog garincha?,barometer,thermometer,odometer,protractor,stopwatch,B,A
+M006,everyday_reasoning,Ghamailo jhari parirahe ko cha ra tapai kakshyama hidera jaanuparcha. Kun bastu sabbhanda upayogi huncha?,ghamchasma,chhata,hatpankha,scarf,sunscreen,B,D
+M007,causal_commonsense,Purna andhyaro darajma 2 hapta samma pani dirakheko biruwa kasto hune sambhawana badhi huncha?,pahenlo ra kamjor,pahile bhanda hariyo,aglo ra baliyo,fool le bhareko,ustai rahane,A,E
+M008,everyday_places,Bhachieko haddi jaach garauna kaha januparcha?,pharmacy,hospital,hulak karyalaya,kirana pasal,vyayamshala,B,A
 M009,physical_commonsense,Kuwa bata ghar samma pani bokera lyauna chahanuhuncha. Kun bhando le kaam garcha?,chhalni,baaltin,machha marne jaal,kagaj ko jhola,taar ko doko,B,D
-M010,social_commonsense,Tapaiko sathile mahatwapurna parikshama fail bhaera dukhi cha. Sabbhanda dayalu tatkal pratikriya ke ho?,usle gareka sabai galti suchibaddha garne,sunne ra saath dine,nirashajanak bhanne,bishaya badlera aafnai kura garne,yesbare online post garne,B,A
-M011,everyday_reasoning,Kagaj ko pana lai dui sapha bhaagma katnuparcha. Kun aujar uttam huncha?,hathauda,kainchi,chamcha,rubber,chumbak,B,D
-M012,causal_commonsense,Tato dhatu ko bhandama baraf ko tukra rakhda ek minute bhitra ke huncha?,yo paglincha,yo kada huncha,yo size ma dobber huncha,yo dhunga bancha,yesma aago lagcha,A,B
-M013,everyday_places,Yatruile lamo duri ko rail chadna samanyatah kaha jancha?,bimansthal,railway station,bus park,bandargaah,petrol pump,B,C
-M014,physical_commonsense,Shanta paniima bistarai rakhinda yimadhye kun tairincha?,falam ko thos ball,sukkha kath ko tukra,itta,falam ko spanner,dhunga,B,A
-M015,everyday_reasoning,Bijuli gaera ratma tapaiko kotha andhyaro bhako cha. Kun bastu samatnu sabbhanda upayogi huncha?,torch,aaina,kapi,kapal korne brush,kettle,A,B
+M010,social_commonsense,Tapaiko sathile mahatwapurna parikshama fail bhayera dukhi cha. Sabbhanda dayalu tatkal pratikriya ke ho?,usle gareka sabai galti suchibaddha garne,sunne ra saath dine,nirashajanak bhanne,bishaya badlera aafnai kura garne,yesbare online post garne,B,A
+M011,everyday_reasoning,Kagaj ko pana lai 2 sapha bhaagma katnuparcha. Kun aujar uttam huncha?,hathauda,kainchi,chamcha,rubber,chumbak,B,D
+M012,causal_commonsense,Taato dhatu ko bhandama baraf ko tukra rakhda ek minute bhitra ke huncha?,yo paglincha,yo kada huncha,yo size ma dobber huncha,yo dhunga bancha,yesma aago lagcha,A,B
+M013,everyday_places,Yatrule lamo duri ko rail chadna samanyatah kaha jancha?,bimansthal,railway station,bus park,bandargaah,petrol pump,B,C
+M014,physical_commonsense,Shanta paanima bistarai rakhinda yimadhye kun tairincha?,falam ko thos ball,sukkha kath ko tukra,itta,falam ko spanner,dhunga,B,A
+M015,everyday_reasoning,Bijuli gayera raatma tapaiko kotha adhyaro bhako cha. Kun bastu samatnu sabbhanda upayogi huncha?,torch,aaina,kapi,kapaal korne brush,kettle,A,B
 M016,social_commonsense,Tapaile sathi ko note sapati linubhayo ra durghatanabash tyasma chiya pokhiyo. Tapaile ke garnuparcha?,chupchap firta garne,maafi magne ra note badlidine,arulai dosh dine,note faalidine,sapati liyeke aswikar garne,B,A
-M017,causal_commonsense,Cycle chalakle pedal nachalai ohralo jharda usko gati samanyatah ke huncha?,badhcha,ghatcha,thyakkai ustai rahancha,shunyama jharcha,ultincha,A,C
+M017,causal_commonsense,Cycle chalakle pedal nachalai oralo jharda usko gati samanyatah ke huncha?,badhcha,ghatcha,thyakkai ustai rahancha,shunyama jharcha,ultincha,A,C
 M018,everyday_objects,Karyalayama stapler ko samanya prayojan ke ho?,khana tataun,kagajka panaharu jodna,duri napna,sisakalam dhariloparne,masi bhandaran garna,B,D
-M019,physical_commonsense,Tapai aafno bhijeko luga jatisakdo chadai sukaun chahanuhuncha. Kaha jhundyaunuparcha?,chiso takhanama,ghamilo ra hawadar aanganama,banda plastic jholabhitra,ochyan muni,fridge bhitra,B,D
+M019,physical_commonsense,Tapai aafno bhijeko luga jatisakdo chadai sukauna chahanuhuncha. Kaha jhundyaunuparcha?,chiso takhanama,ghamilo ra hawadar aanganama,banda plastic jholabhitra,ochyan muni,fridge bhitra,B,D
 M020,everyday_reasoning,Kunai parikarle kagati ko ras magcha. Pahilo kadam ke ho?,kagati umalne,kagati katera nichorne,kagati purai fridge garne,kagati ko biu ropne,bokra ra gudi phaalne,B,E
 M021,social_commonsense,Samuha pariyojanama ek sadasyale kunai kaam gareko chaina tara report ma naam rakhna chahancha. Sabbhanda rachanatmak pahilo kadam ke ho?,nabatai naam hataidine,sidhai kura garera yogdaan garna bhanne,samajik sanjal ma sarwajanik gunaaso garne,chupchap usko kaam aafai garidine,pariyojana nai chhodne,B,A
-M022,causal_commonsense,Tato chiya ek ghanta samma chiso kotha ko table ma rakhiyo bhane tyasko tapkraman lai ke huncha?,badhcha,kotha ko tapkraman tira ghatcha,thyakkai ustai rahancha,himbindu bhanda tala jharcha,anuman garna nasakine huncha,B,C
+M022,causal_commonsense,Taato chiya ek ghanta samma chiso kotha ko table ma rakhiyo bhane tyasko tapkraman lai ke huncha?,badhcha,kotha ko tapkraman tira ghatcha,thyakkai ustai rahancha,himbindu bhanda tala jharcha,anuman garna nasakine huncha,B,C
