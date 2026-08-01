@@ -37,6 +37,7 @@ MUTED = "rgba(128,138,150,1)"
 
 SIGNED_METRICS = {"MRS", "ATS", "AIS"}
 LANGUAGES = ["en", "ne", "ne_rom"]
+LANGUAGE_LABELS = {"en": "English", "ne": "Nepali (Devanagari)", "ne_rom": "Romanized Nepali"}
 
 # A sweep that silently drops most of its items still produces a full table of means
 # and confidence intervals. These thresholds drive the coverage matrix and the reading.
@@ -621,6 +622,12 @@ def _s(v) -> str:
     return str(v)
 
 
+def _preview_snippet(text, max_len: int = 50) -> str:
+    """One-line, length-capped preview of a prompt, in whatever language it's written in."""
+    t = " ".join(_s(text).split())
+    return t if len(t) <= max_len else t[:max_len - 1].rstrip() + "…"
+
+
 def _score_color(value, metric) -> str:
     if value is None or value != value:
         return MUTED
@@ -721,6 +728,26 @@ def _judge_cards_html(votes: pd.DataFrame) -> str:
     return "".join(blocks)
 
 
+def _judge_model_options(cfg, info: dict, provider: str) -> list[str]:
+    """Judge model ids worth offering for a given judge provider.
+
+    config.yaml only stores one `judges.models` list, tied to `judges.provider`. When
+    the sidebar's judge provider matches that configured one, use it as-is -- it was
+    deliberately curated to avoid target/judge overlap (self-grading bias), and pulling
+    in target model ids here would quietly reintroduce the overlap the config avoided.
+    For any other provider there is no configured list to fall back on, so this offers
+    target model ids already routed there (known-good, since they're already running
+    against it) plus Gemini's documented shorthand default (`--gemini-judge` in
+    cli.py) as a starting point when no target happens to use it yet.
+    """
+    if provider == (cfg.judges.provider or "groq"):
+        return list(info["judges"])
+    opts = [t["id"] for t in info["targets"] if t["provider"] == provider]
+    if provider == "gemini" and "gemini-2.5-flash" not in opts:
+        opts.append("gemini-2.5-flash")
+    return opts
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -739,11 +766,6 @@ selected_target_opts = st.sidebar.multiselect(
 )
 selected_target_labels = [target_option_of[o] for o in selected_target_opts]
 
-judge_options = list(info["judges"])
-selected_judges = st.sidebar.multiselect(
-    "Judge models", judge_options, default=judge_options,
-    help="The median vote across these models is taken.",
-)
 provider_options = sorted(info["providers"])
 default_judge_provider = cfg.judges.provider or "groq"
 judge_provider = st.sidebar.selectbox(
@@ -751,6 +773,23 @@ judge_provider = st.sidebar.selectbox(
     index=provider_options.index(default_judge_provider) if default_judge_provider in provider_options else 0,
     help="All judge calls in one sweep go through a single provider.",
 )
+
+# Options depend on judge_provider, and the widget key varies with it too, so switching
+# provider resets the selection to that provider's full option set instead of carrying
+# over model ids that belong to whichever provider was picked before.
+judge_options = _judge_model_options(cfg, info, judge_provider)
+selected_judges = st.sidebar.multiselect(
+    "Judge models", judge_options, default=judge_options, key=f"judge_models_{judge_provider}",
+    help="The median vote across these models is taken. Options follow the judge "
+         "provider above: judges.models from config.yaml when it's the configured "
+         "provider, plus any target model already routed there.",
+)
+if not judge_options:
+    st.sidebar.caption(
+        f"No known model ids for {judge_provider} yet. Add one to target_models with "
+        f"`provider: {judge_provider}` in config.yaml, or point judges.models there "
+        "directly, then reload the dashboard."
+    )
 
 selected_ids = {t["id"] for t in info["targets"] if t["label"] in selected_target_labels}
 overlap = sorted(set(selected_judges) & selected_ids)
@@ -760,12 +799,25 @@ if overlap:
         "and on a shared gateway both roles draw down one rate limit."
     )
 
-language = st.sidebar.selectbox("Language", LANGUAGES, index=LANGUAGES.index(cfg.run.language))
+selected_languages = st.sidebar.multiselect(
+    "Languages", LANGUAGES, default=[cfg.run.language],
+    format_func=lambda lang: f"{LANGUAGE_LABELS[lang]} ({lang})",
+    help="Each language is its own dataset and its own sweep. Selecting more than one "
+         "runs them back-to-back and lets you switch between their results below -- "
+         "scores are never pooled across languages.",
+)
 selected_behaviours = st.sidebar.multiselect(
     "Behaviours", BEHAVIOURS, default=BEHAVIOURS,
     format_func=lambda b: f"{b.replace('_', ' ').title()} ({METRIC_OF[b]})",
 )
 items_per_behaviour = st.sidebar.number_input("Items per behaviour", 1, 200, 2, 1)
+sample_from_end = st.sidebar.toggle(
+    "Take last N instead of first N", value=False,
+    help="Items per behaviour normally keeps each behaviour's first N rows, in seed/"
+         "authored CSV order -- the same slice every small run has already covered. "
+         "Turn this on to keep the last N instead, so a quick sweep can exercise a "
+         "different, untested slice of the dataset.",
+)
 
 mock_mode = st.sidebar.toggle("Mock mode", value=True)
 st.sidebar.caption(
@@ -796,38 +848,62 @@ if run_clicked:
         st.sidebar.error("Select at least one target model.")
     elif not selected_judges:
         st.sidebar.error("Select at least one judge model.")
+    elif not selected_languages:
+        st.sidebar.error("Select at least one language.")
     else:
-        run_cfg = load_config()
-        run_cfg.run.language = language
-        run_cfg.run.behaviours = list(selected_behaviours)
-        run_cfg.run.limit_per_behaviour = int(items_per_behaviour)
-        run_cfg.run.target_model_ids = list(selected_target_labels)
-        run_cfg.judges.models = list(selected_judges)
-        run_cfg.judges.provider = judge_provider
-
         progress_area = st.empty()
         bar = progress_area.progress(0, text="Starting")
+        n_langs = len(selected_languages)
+        results_by_lang: dict[str, dict] = {}
+        errors_by_lang: dict[str, str] = {}
 
-        def _tick(frac: float, msg: str) -> None:
-            bar.progress(min(max(frac, 0.0), 1.0), text=msg)
+        for lang_i, lang in enumerate(selected_languages):
+            # A fresh Config per language: run_evaluation resolves the dataset from
+            # cfg.run.language only when cfg.run.dataset is still None, but it also
+            # writes the resolved path back onto cfg.run.dataset as a side effect --
+            # reusing one Config object across languages would make every language
+            # after the first reuse the previous one's dataset path.
+            run_cfg = load_config()
+            run_cfg.run.language = lang
+            run_cfg.run.behaviours = list(selected_behaviours)
+            run_cfg.run.limit_per_behaviour = int(items_per_behaviour)
+            run_cfg.run.limit_from_end = bool(sample_from_end)
+            run_cfg.run.target_model_ids = list(selected_target_labels)
+            run_cfg.judges.models = list(selected_judges)
+            run_cfg.judges.provider = judge_provider
+            # Every language would otherwise land in the same results/ dir and the
+            # later ones would overwrite the earlier ones' CSVs on disk. Only the
+            # single-language case keeps the plain "results" dir, so the common case
+            # still lines up with "Load last results" and the CLI's default output.
+            if n_langs > 1:
+                run_cfg.run.output_dir = f"results/{lang}"
 
-        try:
-            result = run_evaluation(run_cfg, mock=mock_mode, progress=_tick)
-        except RuntimeError as e:
-            progress_area.empty()
-            st.error(f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys.")
-        except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
-            progress_area.empty()
-            st.error(f"Run failed: {e}")
-        else:
-            progress_area.empty()
-            st.session_state["dash_result"] = {
-                "summary": result["summary"], "paths": result["paths"],
-                "report_text": result["report_text"],
-                "meta": {"targets": selected_target_labels, "judges": selected_judges,
-                         "judge_provider": judge_provider, "language": language,
-                         "n_items": len(result["items"]), "mock": mock_mode},
-            }
+            def _tick(frac: float, msg: str, _i=lang_i) -> None:
+                bar.progress(min(max((_i + frac) / n_langs, 0.0), 1.0),
+                            text=f"[{lang}] {msg} ({_i + 1}/{n_langs})")
+
+            try:
+                result = run_evaluation(run_cfg, mock=mock_mode, progress=_tick)
+            except RuntimeError as e:
+                errors_by_lang[lang] = f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys."
+            except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
+                errors_by_lang[lang] = f"Run failed: {e}"
+            else:
+                results_by_lang[lang] = {
+                    "summary": result["summary"], "paths": result["paths"],
+                    "report_text": result["report_text"],
+                    "meta": {"targets": selected_target_labels, "judges": selected_judges,
+                             "judge_provider": judge_provider, "language": lang,
+                             "n_items": len(result["items"]), "mock": mock_mode,
+                             "from_end": sample_from_end},
+                }
+
+        progress_area.empty()
+        for lang, msg in errors_by_lang.items():
+            st.error(f"{LANGUAGE_LABELS[lang]} ({lang}): {msg}")
+        if results_by_lang:
+            st.session_state["dash_results"] = results_by_lang
+            st.session_state["dash_lang_view"] = next(iter(results_by_lang))
 
 if load_clicked:
     try:
@@ -837,15 +913,16 @@ if load_clicked:
     else:
         out_dir = existing_summary.parent
         report_path = out_dir / "nepsyc_summary_latest.txt"
-        st.session_state["dash_result"] = {
+        st.session_state["dash_results"] = {"(loaded from disk)": {
             "summary": loaded,
             "paths": {"summary_json": existing_summary, "item_scores": out_dir / "item_scores.csv",
                       "raw_responses": out_dir / "raw_responses.csv",
                       "judge_detail": out_dir / "judge_detail.csv", "report_txt": report_path},
             "report_text": report_path.read_text(encoding="utf-8") if report_path.exists() else None,
             "meta": {"targets": None, "judges": None, "judge_provider": None,
-                     "language": None, "n_items": None, "mock": None},
-        }
+                     "language": None, "n_items": None, "mock": None, "from_end": None},
+        }}
+        st.session_state["dash_lang_view"] = "(loaded from disk)"
 
 # ---------------------------------------------------------------------------
 # Page
@@ -858,13 +935,27 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-result_state = st.session_state.get("dash_result")
-if not result_state:
+dash_results = st.session_state.get("dash_results")
+if not dash_results:
     _section("No run loaded", "Start a sweep or open the last one",
              "Configure the run in the sidebar. Mock mode needs no API key and finishes in "
              "seconds. If results/summary.json already exists, Load last results renders it "
              "without spending any calls.")
 else:
+    lang_keys = list(dash_results)
+    if len(lang_keys) > 1:
+        default_view = st.session_state.get("dash_lang_view", lang_keys[0])
+        if default_view not in lang_keys:
+            default_view = lang_keys[0]
+        active_lang = st.radio(
+            "Viewing", lang_keys, index=lang_keys.index(default_view), horizontal=True,
+            key="dash_lang_view",
+            format_func=lambda k: f"{LANGUAGE_LABELS[k]} ({k})" if k in LANGUAGE_LABELS else k,
+        )
+    else:
+        active_lang = lang_keys[0]
+    result_state = dash_results[active_lang]
+
     summary = result_state["summary"]
     paths = {k: (Path(v) if v else None) for k, v in result_state["paths"].items()}
     meta = result_state["meta"]
@@ -873,6 +964,14 @@ else:
     behaviours_present = [b for b in BEHAVIOURS if any(f"{m}||{b}" in summary for m in models)]
     raw_df = _read_csv(paths.get("raw_responses"))
     judge_df = _read_csv(paths.get("judge_detail"))
+
+    # First prompt sent for each (model, item_id), for the "Scored item" picker below --
+    # groupby().first() keeps each group's first row in raw_responses.csv's own order,
+    # which is that item's first condition and turn, written in whatever language this
+    # run's dataset was in, not a fixed English label.
+    preview_of: dict = {}
+    if raw_df is not None and {"model", "item_id", "turn"} <= set(raw_df.columns):
+        preview_of = raw_df.groupby(["model", "item_id"], sort=False)["turn"].first().to_dict()
 
     if not models:
         st.warning("This run produced no scored results.")
@@ -891,6 +990,7 @@ else:
             st.markdown(
                 f'<div class="ns-eyebrow" style="margin-top:14px;">'
                 f'{html.escape(meta["language"])} &nbsp;/&nbsp; {meta["n_items"]} items '
+                f'{"(last N per behaviour) " if meta.get("from_end") else ""}'
                 f'&nbsp;/&nbsp; judges via {html.escape(meta["judge_provider"])} '
                 f'&nbsp;/&nbsp; {"mock" if meta["mock"] else "live"}</div>',
                 unsafe_allow_html=True,
@@ -1037,7 +1137,9 @@ else:
                 def _label(r) -> str:
                     metric = METRIC_OF.get(r.behaviour, r.behaviour)
                     score_s = _fmt(r.score, signed=metric in SIGNED_METRICS) if r.score == r.score else "n/a"
-                    return f"{metric} {score_s}  ·  {r.model}  ·  {r.item_id}"
+                    preview = _preview_snippet(preview_of.get((r.model, r.item_id)))
+                    tail = f"  ·  {preview}" if preview else ""
+                    return f"{metric} {score_s}  ·  {r.model}  ·  {r.item_id}{tail}"
 
                 labels = [_label(r) for r in filtered.itertuples()]
                 pick = st.selectbox("Scored item", labels)

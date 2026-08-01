@@ -5,6 +5,7 @@ in-process and get results back as a dict instead of only as files on disk.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -40,6 +41,23 @@ def _judge_call_prompt(item: dict, call: str) -> str:
         cond, idx = call, 0
     turns = item["conditions"].get(cond, {}).get("turns", [])
     return turns[idx] if idx < len(turns) else ""
+
+
+def _limit_per_behaviour(items: List[dict], n: int, from_end: bool) -> List[dict]:
+    """Keep the first (or, if `from_end`, the last) `n` items of each behaviour.
+
+    Selection is by `id()` rather than re-slicing per behaviour and concatenating, so
+    the result preserves `items`' original relative order instead of regrouping by
+    behaviour.
+    """
+    by_behaviour: Dict[str, List[dict]] = defaultdict(list)
+    for i in items:
+        by_behaviour[i["behaviour"]].append(i)
+    keep_ids = set()
+    for lst in by_behaviour.values():
+        chosen = lst[-n:] if from_end else lst[:n]
+        keep_ids.update(id(i) for i in chosen)
+    return [i for i in items if id(i) in keep_ids]
 
 
 def _filter_target_models(cfg: Config):
@@ -96,25 +114,13 @@ def run_evaluation(
     if cfg.run.behaviours:
         items = [i for i in items if i["behaviour"] in cfg.run.behaviours]
     if cfg.run.limit_per_behaviour:
-        seen, keep = {}, []
-        for i in items:
-            n = seen.get(i["behaviour"], 0)
-            if n < cfg.run.limit_per_behaviour:
-                keep.append(i)
-                seen[i["behaviour"]] = n + 1
-        items = keep
+        items = _limit_per_behaviour(items, cfg.run.limit_per_behaviour, cfg.run.limit_from_end)
     if cfg.run.limit_total:
         # N per behaviour, not N total: items are emitted by build() in fixed
         # behaviour blocks (agreement_bias first, ...), so a flat items[:N] for
         # small N silently returned agreement_bias-only and every other behaviour
         # showed n/a in the report even though the dataset had items for all of them.
-        seen, keep = {}, []
-        for i in items:
-            n = seen.get(i["behaviour"], 0)
-            if n < cfg.run.limit_total:
-                keep.append(i)
-                seen[i["behaviour"]] = n + 1
-        items = keep
+        items = _limit_per_behaviour(items, cfg.run.limit_total, cfg.run.limit_from_end)
     print(f"{len(items)} items after filtering")
     _tick(0.1, "dataset ready")
 

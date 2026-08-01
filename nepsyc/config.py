@@ -63,6 +63,10 @@ class RunCfg:
     behaviours: List[str] = field(default_factory=list)  # empty = all
     limit_per_behaviour: int = 0  # 0 = no limit
     limit_total: int = 0  # 0 = no limit; hard cap on item count after all other filtering
+    # False (default) = keep the first N items per behaviour, as CSV row order has it.
+    # True = keep the last N instead, so a small smoke test can exercise a different
+    # slice of each seed/authored file than the one every prior run already covered.
+    limit_from_end: bool = False
     # ids or labels from target_models; empty = all (same convention as `behaviours` above)
     target_model_ids: List[str] = field(default_factory=list)
 

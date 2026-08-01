@@ -35,6 +35,9 @@ python run.py evaluate --limit-total 1 --mock   # alias for --limit: N items PER
                                           # 6 behaviours (6 items), not 1 item total
 python run.py evaluate --target-models Llama-3.1-8B --mock   # subset of target_models, by
                                           # id or label; empty (default) = all configured
+python run.py evaluate --limit-total 2 --from-end --mock   # last 2 items per behaviour
+                                          # instead of the first 2 -- covers a different
+                                          # slice of each seed/authored file than the default
 python run.py evaluate --human data/human_annotations.csv   # adds Krippendorff's alpha
 
 python scripts/convert_public_datasets.py --n-truthfulqa 200 --n-csqa 200
@@ -98,6 +101,9 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
 - `config.py` — typed config loaded from `config.yaml`. `RunCfg.dataset` is `None` by default
   and derived at runtime as `data/nepsyc_<language>.csv`. `RunCfg.target_model_ids` is the
   same empty-means-all convention as `behaviours`, filtering `target_models` by id or label.
+  `RunCfg.limit_from_end` (default `False`) flips `limit_per_behaviour` / `limit_total` from
+  keeping each behaviour's first N items to keeping its last N, so a small sweep can be pointed
+  at a slice of the dataset a prior small sweep hasn't already covered.
 - `tables.py` — the CSV I/O layer all datasets go through. Two conventions carry structure CSV
   lacks: pipe-separated list columns (`correct_variants`), and dict columns split into named
   columns (`choice_a`..`choice_e`). A blank cell reads as `None`, never `""` — treating a blank
@@ -145,8 +151,11 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
   `cli.cmd_evaluate` always has -- this is a pure extraction, not a schema change. `progress`,
   if given, is called at coarse milestones (`dataset ready`, `responses collected`, `scoring
   done`, `report written`) with a `(fraction, message)` pair; `collect()`'s own tqdm bar is
-  unchanged and still prints for CLI use regardless. `list_configured_models(cfg)` reads
-  `target_models` / `judges` / `providers` out of config with no network call, for populating
+  unchanged and still prints for CLI use regardless. `_limit_per_behaviour(items, n, from_end)`
+  backs both `limit_per_behaviour` and `limit_total`: it keeps each behaviour's first N items,
+  or its last N when `cfg.run.limit_from_end` is set, selecting by `id()` so the output keeps
+  `items`' original relative order rather than regrouping by behaviour. `list_configured_models(cfg)`
+  reads `target_models` / `judges` / `providers` out of config with no network call, for populating
   a model-selection UI before a run.
 - `cli.py` — `build` / `check-models` / `evaluate` subcommands; `run.py` is a one-line
   entrypoint into `nepsyc.cli.main()`. `cmd_evaluate` only parses args into `cfg` (including
@@ -156,28 +165,63 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
 ### Dashboard (`app/dashboard.py`)
 
 Streamlit UI over the same pipeline the CLI uses — additive only, no pipeline/config/output
-changes. Sidebar builds a `Config` from `load_config()` plus widget values (target models via
-`cfg.run.target_model_ids`, judge models/provider via `cfg.judges.*`, language, behaviours,
-`limit_per_behaviour`, and the mock toggle) and calls `pipeline.run_evaluation(cfg, mock=...,
+schema changes. Sidebar builds a `Config` from `load_config()` plus widget values (target
+models via `cfg.run.target_model_ids`, judge models/provider via `cfg.judges.*`, behaviours,
+`limit_per_behaviour`, a "Take last N instead of first N" toggle wired to `limit_from_end` (CLI
+equivalent: `--from-end`), and the mock toggle) and calls `pipeline.run_evaluation(cfg, mock=...,
 progress=...)`; a `RuntimeError` from a provider (missing API key, exhausted retries) is caught
 and shown as `st.error` instead of a traceback, with a pointer back to mock mode. Charts are
 Plotly bar-with-CI, one per behaviour, respecting `report.DIRECTION` (0..5 vs. signed −5..+5,
 never treating the two the same way); model→color is assigned once by declaration order so a
 model keeps its color across every chart, per the dataviz skill's "color follows the entity,
-never its rank." The item explorer and downloads read straight from the files
-`run_evaluation` already writes (`item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`,
-`summary.json`, the `.txt` report) — there is no separate in-memory result path, so "Run
-benchmark" and "Load last results" (reading an existing `results/summary.json`) render through
-the same code. The item explorer ("Prompt inspector") filters behaviour first, then model, then
-a single scored item, because the driving use case is "show me the prompt behind this model's
-AIS score" rather than browsing a flat table; it renders the exact conversation from
-`raw_responses.csv`'s `turn`/`reply` columns as chat bubbles grouped by condition (`main`,
-`stance_pro`/`stance_con`, `self_opinion`/`authority_cue`, ...), a colored score hero plus
-behaviour-specific badges parsed out of `detail_json` (`DETAIL_FIELDS` in `dashboard.py`), and
-the judge panel's votes from `judge_detail.csv` as rationale cards with the raw grading prompt
-available in an expander — no new files or schema, purely a different read of the same CSVs.
-Needs `streamlit` / `plotly` / `pandas`, listed in `requirements.txt` alongside the CLI's
-dependencies.
+never its rank."
+
+"Languages" is a multiselect, not the single dropdown a single sweep's `cfg.run.language` might
+suggest: picking more than one runs a separate `run_evaluation` call per language, each against
+its own freshly-`load_config()`-ed `Config` (never a shared/mutated one — `run_evaluation`
+writes the resolved dataset path back onto `cfg.run.dataset` as a side effect, so reusing one
+`Config` object across languages would make every language after the first silently reuse the
+first one's dataset). Output directory follows the same one-sweep-shouldn't-clobber-another
+logic: the plain `results/` dir (unchanged) when exactly one language is selected, so "Load last
+results" still lines up with a normal single-language run or a CLI run; `results/<language>/`
+per language when more than one is selected, so they don't overwrite each other's CSVs.
+Results land in `st.session_state["dash_results"]`, a `{language: {summary, paths, report_text,
+meta}}` dict (`"Load last results"` populates it with the single sentinel key
+`"(loaded from disk)"`); a "Viewing" radio appears whenever it holds more than one entry, letting
+you switch which language's results the rest of the page renders — scores are still never
+pooled across languages, matching the CLI's report caveat that AGS in `en` vs. `ne` has to be
+diffed by hand, not averaged.
+
+Judge model options follow the judge provider, not a fixed list: `_judge_model_options(cfg,
+info, provider)` returns `judges.models` from config.yaml as-is only when `provider` matches
+`cfg.judges.provider` (that list was hand-curated to avoid a judge grading its own target's
+replies, so pulling in target model ids here for the matching-provider case would quietly
+reintroduce that overlap); for any other provider it offers target model ids already routed
+there via `target_models[].provider`, plus `gemini-2.5-flash` as a starting point for `gemini`
+specifically (mirroring the `--gemini-judge` CLI shorthand) since no target may use it yet. The
+"Judge models" multiselect's widget `key` includes the provider (`judge_models_<provider>`), so
+switching provider resets the selection to that provider's full option set instead of carrying
+over model ids that belonged to whichever provider was picked before.
+
+The item explorer and downloads read straight from the files `run_evaluation` already writes
+(`item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`, `summary.json`, the `.txt` report)
+for whichever language is active — there is no separate in-memory result path, so "Run
+benchmark" and "Load last results" render through the same code. The item explorer ("Prompt
+inspector") filters behaviour first, then model, then a single scored item, because the driving
+use case is "show me the prompt behind this model's AIS score" rather than browsing a flat
+table; its "Scored item" dropdown label is otherwise just ids and scores (nothing language-
+specific to localize), so each option also gets a `_preview_snippet` of that item's actual first
+prompt (`preview_of`, a `{(model, item_id): turn}` lookup built once via `raw_df.groupby(["model",
+"item_id"]).first()` on `raw_responses.csv` -- group-first preserves the file's own row order,
+i.e. that item's first condition and turn) capped at 50 chars, so the picker reads in whatever
+language the active run's dataset is in rather than only ever showing English. Once an item is
+picked, it renders the exact conversation from `raw_responses.csv`'s `turn`/`reply` columns as
+chat bubbles grouped by condition (`main`, `stance_pro`/`stance_con`, `self_opinion`/
+`authority_cue`, ...), a colored score hero plus behaviour-specific badges parsed out of
+`detail_json` (`DETAIL_FIELDS` in `dashboard.py`), and the judge panel's votes from
+`judge_detail.csv` as rationale cards with the raw grading prompt available in an expander — no
+new files or schema, purely a different read of the same CSVs. Needs `streamlit` / `plotly` /
+`pandas`, listed in `requirements.txt` alongside the CLI's dependencies.
 
 ### Seed vs. authored datasets
 
