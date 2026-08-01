@@ -37,6 +37,7 @@ MUTED = "rgba(128,138,150,1)"
 
 SIGNED_METRICS = {"MRS", "ATS", "AIS"}
 LANGUAGES = ["en", "ne", "ne_rom"]
+LANGUAGE_LABELS = {"en": "English", "ne": "Nepali (Devanagari)", "ne_rom": "Romanized Nepali"}
 
 # A sweep that silently drops most of its items still produces a full table of means
 # and confidence intervals. These thresholds drive the coverage matrix and the reading.
@@ -121,6 +122,64 @@ CSS = """
   display: block; margin-top: 5px; font-family: 'IBM Plex Mono', monospace;
   font-size: 11.5px; color: rgba(128,138,150,1); line-height: 1.5;
 }
+
+.ns-hero {
+  border: 1px solid rgba(128,138,150,0.28); padding: 16px 20px; margin: 4px 0 4px;
+  display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap;
+}
+.ns-hero .ns-hero-val {
+  font-family: 'IBM Plex Mono', monospace; font-size: 38px; font-weight: 600;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.ns-hero .ns-hero-metric {
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: rgba(128,138,150,1);
+  margin-left: 6px; letter-spacing: 0.06em;
+}
+.ns-hero .ns-hero-meta { font-size: 12.5px; color: rgba(128,138,150,1); line-height: 1.6; }
+.ns-hero .ns-hero-meta b { color: inherit; font-family: 'Archivo', sans-serif; }
+
+.ns-badgerow { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+.ns-badge {
+  border: 1px solid rgba(128,138,150,0.28); padding: 5px 10px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; line-height: 1.3;
+}
+.ns-badge .ns-badge-k { color: rgba(128,138,150,1); margin-right: 6px; }
+
+.ns-condlabel {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: rgba(128,138,150,1);
+  margin: 18px 0 8px; padding-top: 12px; border-top: 1px solid rgba(128,138,150,0.2);
+}
+.ns-condlabel:first-child { margin-top: 6px; padding-top: 0; border-top: none; }
+
+.ns-chat { display: flex; flex-direction: column; gap: 8px; }
+.ns-bubble {
+  border: 1px solid rgba(128,138,150,0.26); border-left: 3px solid rgba(128,138,150,0.5);
+  padding: 10px 14px;
+}
+.ns-bubble.ns-user { border-left-color: #2a78d6; }
+.ns-bubble.ns-assistant { border-left-color: #1baf7a; margin-left: 22px; }
+.ns-bubble.ns-error { border-left-color: #a62b2b; margin-left: 22px; }
+.ns-bubble .ns-role {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: rgba(128,138,150,1);
+  margin-bottom: 6px;
+}
+.ns-bubble .ns-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+
+.ns-jcard {
+  border: 1px solid rgba(128,138,150,0.26); padding: 10px 14px; margin-bottom: 8px;
+}
+.ns-jcard .ns-jhead {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;
+}
+.ns-jcard .ns-jmodel { font-weight: 600; }
+.ns-jcard .ns-jval { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ns-jcard .ns-jrationale {
+  font-size: 12.5px; color: rgba(128,138,150,1); margin-top: 7px; line-height: 1.55;
+}
+.ns-jcard .ns-jerror { font-size: 12px; color: #a62b2b; margin-top: 7px; }
 </style>
 """
 
@@ -530,6 +589,166 @@ def _behaviour_extras(behaviour, summary, models) -> pd.DataFrame | None:
 
 
 # ---------------------------------------------------------------------------
+# Item inspector: prompt, reply and judge verdict for one scored item
+# ---------------------------------------------------------------------------
+
+COND_LABELS = {
+    "main": "Main", "pressure": "Pressure (3 turns)",
+    "stance_pro": "Stance — pro", "stance_con": "Stance — con",
+    "self_authored": "Self-authored", "anonymous": "Anonymous",
+    "self_opinion": "Self opinion", "authority_cue": "Authority cue",
+}
+
+# (detail_json key, label, formatter) shown as badges under the score hero, per behaviour.
+DETAIL_FIELDS = {
+    "agreement_bias": [("parsed_letter", "MCQ letter"), ("hard_agreed_with_user", "agreed w/ user"),
+                        ("hard_correct", "hard correct")],
+    "delusion_acceptance": [],
+    "revision_under_pressure": [("grading_mode", "grading"), ("eligible", "eligible"),
+                                 ("turn_labels", "turn labels"), ("flip", "flipped"),
+                                 ("stable_correct", "stable correct"), ("recovery", "recovered")],
+    "mirroring": [("stance_pro", "stance pro"), ("stance_con", "stance con"), ("abs_score", "|MRS|")],
+    "attribution_bias": [("positivity_self", "positivity self"), ("positivity_anon", "positivity anon"),
+                          ("rating_self", "rating self"), ("rating_anon", "rating anon"),
+                          ("rating_delta", "rating delta"), ("error_flag_gap", "error-flag gap")],
+    "authority_influence": [("agreement_self", "agreement self"), ("agreement_authority", "agreement authority")],
+}
+
+
+def _s(v) -> str:
+    """Stringify a cell that may be pandas NaN (read back from a blank CSV field) or None."""
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    return str(v)
+
+
+def _preview_snippet(text, max_len: int = 50) -> str:
+    """One-line, length-capped preview of a prompt, in whatever language it's written in."""
+    t = " ".join(_s(text).split())
+    return t if len(t) <= max_len else t[:max_len - 1].rstrip() + "…"
+
+
+def _score_color(value, metric) -> str:
+    if value is None or value != value:
+        return MUTED
+    mag = min(abs(value) / 5.0, 1.0)
+    if mag < 0.2:
+        return OK_COLOR
+    if mag < 0.5:
+        return WARN_COLOR
+    return BAD_COLOR
+
+
+def _badge_value(v) -> str | None:
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, float):
+        return f"{v:.2f}"
+    if isinstance(v, list):
+        return " → ".join(str(x) for x in v)
+    return str(v)
+
+
+def _hero_html(score, metric, behaviour, errors) -> str:
+    color = _score_color(score, metric)
+    if score is None or score != score:
+        val = "n/a"
+        meta = "not scored" + (f" — {html.escape('; '.join(errors))}" if errors else "")
+    else:
+        val = _fmt(score, signed=metric in SIGNED_METRICS)
+        meta = html.escape(DIRECTION.get(metric, ""))
+    return (
+        f'<div class="ns-hero">'
+        f'<div><span class="ns-hero-val" style="color:{color};">{html.escape(val)}</span>'
+        f'<span class="ns-hero-metric">{html.escape(metric)}</span></div>'
+        f'<div class="ns-hero-meta"><b>{html.escape(behaviour.replace("_", " ").title())}</b><br>{meta}</div>'
+        f'</div>'
+    )
+
+
+def _badges_html(behaviour, detail: dict) -> str:
+    fields = DETAIL_FIELDS.get(behaviour, [])
+    chips = []
+    for key, label in fields:
+        v = _badge_value(detail.get(key))
+        if v is None:
+            continue
+        chips.append(f'<div class="ns-badge"><span class="ns-badge-k">{html.escape(label)}</span>'
+                     f'{html.escape(v)}</div>')
+    return f'<div class="ns-badgerow">{"".join(chips)}</div>' if chips else ""
+
+
+def _conversation_html(turns: pd.DataFrame) -> str:
+    blocks = []
+    for cond in turns["condition"].unique():
+        sub = turns[turns["condition"] == cond].sort_values("turn_index")
+        blocks.append(f'<div class="ns-condlabel">{html.escape(COND_LABELS.get(cond, cond.replace("_", " ").title()))}</div>')
+        bubbles = []
+        err = _s(sub.iloc[0].get("error")).strip()
+        for _, r in sub.iterrows():
+            prompt = _s(r.get("turn"))
+            bubbles.append(
+                f'<div class="ns-bubble ns-user"><div class="ns-role">User &middot; turn {int(r["turn_index"]) + 1}</div>'
+                f'<div class="ns-text">{html.escape(prompt)}</div></div>'
+            )
+            reply = _s(r.get("reply"))
+            if reply:
+                bubbles.append(
+                    f'<div class="ns-bubble ns-assistant"><div class="ns-role">Model reply</div>'
+                    f'<div class="ns-text">{html.escape(reply)}</div></div>'
+                )
+        if err:
+            bubbles.append(f'<div class="ns-bubble ns-error"><div class="ns-role">Error</div>'
+                           f'<div class="ns-text">{html.escape(err)}</div></div>')
+        blocks.append(f'<div class="ns-chat">{"".join(bubbles)}</div>')
+    return "".join(blocks)
+
+
+def _judge_cards_html(votes: pd.DataFrame) -> str:
+    blocks = []
+    for call in votes["call"].unique():
+        sub = votes[votes["call"] == call]
+        blocks.append(f'<div class="ns-condlabel">Judge votes &middot; {html.escape(str(call))}</div>')
+        cards = []
+        for _, r in sub.iterrows():
+            val_s = _s(r.get("judge_value"))
+            rationale = _s(r.get("judge_rationale")).strip()
+            err = _s(r.get("judge_error")).strip()
+            cards.append(
+                '<div class="ns-jcard">'
+                f'<div class="ns-jhead"><span class="ns-jmodel">{html.escape(_s(r.get("judge_model")))}</span>'
+                f'<span class="ns-jval">{html.escape(val_s) if val_s else "n/a"}</span></div>'
+                + (f'<div class="ns-jrationale">{html.escape(rationale)}</div>' if rationale else "")
+                + (f'<div class="ns-jerror">{html.escape(err)}</div>' if err else "")
+                + '</div>'
+            )
+        blocks.append("".join(cards))
+    return "".join(blocks)
+
+
+def _judge_model_options(cfg, info: dict, provider: str) -> list[str]:
+    """Judge model ids worth offering for a given judge provider.
+
+    config.yaml only stores one `judges.models` list, tied to `judges.provider`. When
+    the sidebar's judge provider matches that configured one, use it as-is -- it was
+    deliberately curated to avoid target/judge overlap (self-grading bias), and pulling
+    in target model ids here would quietly reintroduce the overlap the config avoided.
+    For any other provider there is no configured list to fall back on, so this offers
+    target model ids already routed there (known-good, since they're already running
+    against it) plus Gemini's documented shorthand default (`--gemini-judge` in
+    cli.py) as a starting point when no target happens to use it yet.
+    """
+    if provider == (cfg.judges.provider or "groq"):
+        return list(info["judges"])
+    opts = [t["id"] for t in info["targets"] if t["provider"] == provider]
+    if provider == "gemini" and "gemini-2.5-flash" not in opts:
+        opts.append("gemini-2.5-flash")
+    return opts
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -547,11 +766,6 @@ selected_target_opts = st.sidebar.multiselect(
 )
 selected_target_labels = [target_option_of[o] for o in selected_target_opts]
 
-judge_options = list(info["judges"])
-selected_judges = st.sidebar.multiselect(
-    "Judge models", judge_options, default=judge_options,
-    help="The median vote across these models is taken.",
-)
 provider_options = sorted(info["providers"])
 default_judge_provider = cfg.judges.provider or "groq"
 judge_provider = st.sidebar.selectbox(
@@ -559,6 +773,23 @@ judge_provider = st.sidebar.selectbox(
     index=provider_options.index(default_judge_provider) if default_judge_provider in provider_options else 0,
     help="All judge calls in one sweep go through a single provider.",
 )
+
+# Options depend on judge_provider, and the widget key varies with it too, so switching
+# provider resets the selection to that provider's full option set instead of carrying
+# over model ids that belong to whichever provider was picked before.
+judge_options = _judge_model_options(cfg, info, judge_provider)
+selected_judges = st.sidebar.multiselect(
+    "Judge models", judge_options, default=judge_options, key=f"judge_models_{judge_provider}",
+    help="The median vote across these models is taken. Options follow the judge "
+         "provider above: judges.models from config.yaml when it's the configured "
+         "provider, plus any target model already routed there.",
+)
+if not judge_options:
+    st.sidebar.caption(
+        f"No known model ids for {judge_provider} yet. Add one to target_models with "
+        f"`provider: {judge_provider}` in config.yaml, or point judges.models there "
+        "directly, then reload the dashboard."
+    )
 
 selected_ids = {t["id"] for t in info["targets"] if t["label"] in selected_target_labels}
 overlap = sorted(set(selected_judges) & selected_ids)
@@ -568,12 +799,25 @@ if overlap:
         "and on a shared gateway both roles draw down one rate limit."
     )
 
-language = st.sidebar.selectbox("Language", LANGUAGES, index=LANGUAGES.index(cfg.run.language))
+selected_languages = st.sidebar.multiselect(
+    "Languages", LANGUAGES, default=[cfg.run.language],
+    format_func=lambda lang: f"{LANGUAGE_LABELS[lang]} ({lang})",
+    help="Each language is its own dataset and its own sweep. Selecting more than one "
+         "runs them back-to-back and lets you switch between their results below -- "
+         "scores are never pooled across languages.",
+)
 selected_behaviours = st.sidebar.multiselect(
     "Behaviours", BEHAVIOURS, default=BEHAVIOURS,
     format_func=lambda b: f"{b.replace('_', ' ').title()} ({METRIC_OF[b]})",
 )
 items_per_behaviour = st.sidebar.number_input("Items per behaviour", 1, 200, 2, 1)
+sample_from_end = st.sidebar.toggle(
+    "Take last N instead of first N", value=False,
+    help="Items per behaviour normally keeps each behaviour's first N rows, in seed/"
+         "authored CSV order -- the same slice every small run has already covered. "
+         "Turn this on to keep the last N instead, so a quick sweep can exercise a "
+         "different, untested slice of the dataset.",
+)
 
 mock_mode = st.sidebar.toggle("Mock mode", value=True)
 st.sidebar.caption(
@@ -604,38 +848,62 @@ if run_clicked:
         st.sidebar.error("Select at least one target model.")
     elif not selected_judges:
         st.sidebar.error("Select at least one judge model.")
+    elif not selected_languages:
+        st.sidebar.error("Select at least one language.")
     else:
-        run_cfg = load_config()
-        run_cfg.run.language = language
-        run_cfg.run.behaviours = list(selected_behaviours)
-        run_cfg.run.limit_per_behaviour = int(items_per_behaviour)
-        run_cfg.run.target_model_ids = list(selected_target_labels)
-        run_cfg.judges.models = list(selected_judges)
-        run_cfg.judges.provider = judge_provider
-
         progress_area = st.empty()
         bar = progress_area.progress(0, text="Starting")
+        n_langs = len(selected_languages)
+        results_by_lang: dict[str, dict] = {}
+        errors_by_lang: dict[str, str] = {}
 
-        def _tick(frac: float, msg: str) -> None:
-            bar.progress(min(max(frac, 0.0), 1.0), text=msg)
+        for lang_i, lang in enumerate(selected_languages):
+            # A fresh Config per language: run_evaluation resolves the dataset from
+            # cfg.run.language only when cfg.run.dataset is still None, but it also
+            # writes the resolved path back onto cfg.run.dataset as a side effect --
+            # reusing one Config object across languages would make every language
+            # after the first reuse the previous one's dataset path.
+            run_cfg = load_config()
+            run_cfg.run.language = lang
+            run_cfg.run.behaviours = list(selected_behaviours)
+            run_cfg.run.limit_per_behaviour = int(items_per_behaviour)
+            run_cfg.run.limit_from_end = bool(sample_from_end)
+            run_cfg.run.target_model_ids = list(selected_target_labels)
+            run_cfg.judges.models = list(selected_judges)
+            run_cfg.judges.provider = judge_provider
+            # Every language would otherwise land in the same results/ dir and the
+            # later ones would overwrite the earlier ones' CSVs on disk. Only the
+            # single-language case keeps the plain "results" dir, so the common case
+            # still lines up with "Load last results" and the CLI's default output.
+            if n_langs > 1:
+                run_cfg.run.output_dir = f"results/{lang}"
 
-        try:
-            result = run_evaluation(run_cfg, mock=mock_mode, progress=_tick)
-        except RuntimeError as e:
-            progress_area.empty()
-            st.error(f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys.")
-        except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
-            progress_area.empty()
-            st.error(f"Run failed: {e}")
-        else:
-            progress_area.empty()
-            st.session_state["dash_result"] = {
-                "summary": result["summary"], "paths": result["paths"],
-                "report_text": result["report_text"],
-                "meta": {"targets": selected_target_labels, "judges": selected_judges,
-                         "judge_provider": judge_provider, "language": language,
-                         "n_items": len(result["items"]), "mock": mock_mode},
-            }
+            def _tick(frac: float, msg: str, _i=lang_i) -> None:
+                bar.progress(min(max((_i + frac) / n_langs, 0.0), 1.0),
+                            text=f"[{lang}] {msg} ({_i + 1}/{n_langs})")
+
+            try:
+                result = run_evaluation(run_cfg, mock=mock_mode, progress=_tick)
+            except RuntimeError as e:
+                errors_by_lang[lang] = f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys."
+            except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
+                errors_by_lang[lang] = f"Run failed: {e}"
+            else:
+                results_by_lang[lang] = {
+                    "summary": result["summary"], "paths": result["paths"],
+                    "report_text": result["report_text"],
+                    "meta": {"targets": selected_target_labels, "judges": selected_judges,
+                             "judge_provider": judge_provider, "language": lang,
+                             "n_items": len(result["items"]), "mock": mock_mode,
+                             "from_end": sample_from_end},
+                }
+
+        progress_area.empty()
+        for lang, msg in errors_by_lang.items():
+            st.error(f"{LANGUAGE_LABELS[lang]} ({lang}): {msg}")
+        if results_by_lang:
+            st.session_state["dash_results"] = results_by_lang
+            st.session_state["dash_lang_view"] = next(iter(results_by_lang))
 
 if load_clicked:
     try:
@@ -645,15 +913,16 @@ if load_clicked:
     else:
         out_dir = existing_summary.parent
         report_path = out_dir / "nepsyc_summary_latest.txt"
-        st.session_state["dash_result"] = {
+        st.session_state["dash_results"] = {"(loaded from disk)": {
             "summary": loaded,
             "paths": {"summary_json": existing_summary, "item_scores": out_dir / "item_scores.csv",
                       "raw_responses": out_dir / "raw_responses.csv",
                       "judge_detail": out_dir / "judge_detail.csv", "report_txt": report_path},
             "report_text": report_path.read_text(encoding="utf-8") if report_path.exists() else None,
             "meta": {"targets": None, "judges": None, "judge_provider": None,
-                     "language": None, "n_items": None, "mock": None},
-        }
+                     "language": None, "n_items": None, "mock": None, "from_end": None},
+        }}
+        st.session_state["dash_lang_view"] = "(loaded from disk)"
 
 # ---------------------------------------------------------------------------
 # Page
@@ -666,13 +935,27 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-result_state = st.session_state.get("dash_result")
-if not result_state:
+dash_results = st.session_state.get("dash_results")
+if not dash_results:
     _section("No run loaded", "Start a sweep or open the last one",
              "Configure the run in the sidebar. Mock mode needs no API key and finishes in "
              "seconds. If results/summary.json already exists, Load last results renders it "
              "without spending any calls.")
 else:
+    lang_keys = list(dash_results)
+    if len(lang_keys) > 1:
+        default_view = st.session_state.get("dash_lang_view", lang_keys[0])
+        if default_view not in lang_keys:
+            default_view = lang_keys[0]
+        active_lang = st.radio(
+            "Viewing", lang_keys, index=lang_keys.index(default_view), horizontal=True,
+            key="dash_lang_view",
+            format_func=lambda k: f"{LANGUAGE_LABELS[k]} ({k})" if k in LANGUAGE_LABELS else k,
+        )
+    else:
+        active_lang = lang_keys[0]
+    result_state = dash_results[active_lang]
+
     summary = result_state["summary"]
     paths = {k: (Path(v) if v else None) for k, v in result_state["paths"].items()}
     meta = result_state["meta"]
@@ -681,6 +964,14 @@ else:
     behaviours_present = [b for b in BEHAVIOURS if any(f"{m}||{b}" in summary for m in models)]
     raw_df = _read_csv(paths.get("raw_responses"))
     judge_df = _read_csv(paths.get("judge_detail"))
+
+    # First prompt sent for each (model, item_id), for the "Scored item" picker below --
+    # groupby().first() keeps each group's first row in raw_responses.csv's own order,
+    # which is that item's first condition and turn, written in whatever language this
+    # run's dataset was in, not a fixed English label.
+    preview_of: dict = {}
+    if raw_df is not None and {"model", "item_id", "turn"} <= set(raw_df.columns):
+        preview_of = raw_df.groupby(["model", "item_id"], sort=False)["turn"].first().to_dict()
 
     if not models:
         st.warning("This run produced no scored results.")
@@ -699,6 +990,7 @@ else:
             st.markdown(
                 f'<div class="ns-eyebrow" style="margin-top:14px;">'
                 f'{html.escape(meta["language"])} &nbsp;/&nbsp; {meta["n_items"]} items '
+                f'{"(last N per behaviour) " if meta.get("from_end") else ""}'
                 f'&nbsp;/&nbsp; judges via {html.escape(meta["judge_provider"])} '
                 f'&nbsp;/&nbsp; {"mock" if meta["mock"] else "live"}</div>',
                 unsafe_allow_html=True,
@@ -812,20 +1104,23 @@ else:
                     st.caption("A blank rating delta means no 'Rating: X/10' line was found in "
                                "the reply, not that the model rated both versions equally.")
 
-        _section("Items", "Inspect a single scored item",
-                 "Prompt, reply and judge rationale for one model on one item.")
+        _section("Prompt inspector", "Walk one behaviour down to a single prompt",
+                 "Pick a behaviour, then a model, then one scored item: the exact prompts sent, "
+                 "the model's replies, the score they earned, and the judge panel's rationale.")
         scores_df = _read_csv(paths.get("item_scores"))
         if scores_df is None:
             st.caption("No item_scores.csv for this run.")
         else:
             f1, f2, f3 = st.columns([2, 2, 1])
             with f1:
+                behaviour_filter = st.multiselect(
+                    "Behaviour", [b for b in BEHAVIOURS if b in set(scores_df["behaviour"])],
+                    default=[b for b in BEHAVIOURS if b in set(scores_df["behaviour"])],
+                    format_func=lambda b: f"{METRIC_OF[b]}  {b.replace('_', ' ').title()}",
+                )
+            with f2:
                 model_filter = st.multiselect("Model", sorted(scores_df["model"].dropna().unique()),
                                               default=sorted(scores_df["model"].dropna().unique()))
-            with f2:
-                behaviour_filter = st.multiselect(
-                    "Behaviour", sorted(scores_df["behaviour"].dropna().unique()),
-                    default=sorted(scores_df["behaviour"].dropna().unique()))
             with f3:
                 unscored_only = st.checkbox("Unscored only", value=False,
                                             help="Items dropped before aggregation.")
@@ -834,43 +1129,69 @@ else:
                                  & scores_df["behaviour"].isin(behaviour_filter)]
             if unscored_only and "score" in filtered.columns:
                 filtered = filtered[filtered["score"].isna()]
-            filtered = filtered.reset_index(drop=True)
+            filtered = filtered.sort_values(["behaviour", "model", "item_id"]).reset_index(drop=True)
 
             if filtered.empty:
                 st.caption("Nothing matches these filters.")
             else:
-                st.dataframe(filtered.drop(columns=["detail_json"], errors="ignore"),
-                             width="stretch", height=260)
-                labels = [f"{r.model} · {r.behaviour} · {r.item_id}" for r in filtered.itertuples()]
-                pick = st.selectbox("Item", labels)
+                def _label(r) -> str:
+                    metric = METRIC_OF.get(r.behaviour, r.behaviour)
+                    score_s = _fmt(r.score, signed=metric in SIGNED_METRICS) if r.score == r.score else "n/a"
+                    preview = _preview_snippet(preview_of.get((r.model, r.item_id)))
+                    tail = f"  ·  {preview}" if preview else ""
+                    return f"{metric} {score_s}  ·  {r.model}  ·  {r.item_id}{tail}"
+
+                labels = [_label(r) for r in filtered.itertuples()]
+                pick = st.selectbox("Scored item", labels)
                 row = filtered.iloc[labels.index(pick)]
+
+                detail_raw = row.get("detail_json")
+                detail = {}
+                if isinstance(detail_raw, str) and detail_raw:
+                    try:
+                        detail = json.loads(detail_raw)
+                    except json.JSONDecodeError:
+                        detail = {}
+
+                metric = METRIC_OF.get(row["behaviour"], row["behaviour"])
+                score_val = row.get("score")
+                score_val = None if score_val != score_val else score_val
+                st.markdown(
+                    _hero_html(score_val, metric, row["behaviour"], detail.get("errors")),
+                    unsafe_allow_html=True,
+                )
+                st.markdown(_badges_html(row["behaviour"], detail), unsafe_allow_html=True)
+                st.caption(f'{row["item_id"]}  ·  seed {row.get("seed_id")}  ·  '
+                          f'topic {row.get("topic")}  ·  source {row.get("source")}')
 
                 if raw_df is not None:
                     turns = raw_df[(raw_df["model"] == row["model"])
                                    & (raw_df["item_id"] == row["item_id"])]
                     if not turns.empty:
-                        st.markdown('<div class="ns-eyebrow">Turns</div>', unsafe_allow_html=True)
-                        shown = turns[["condition", "turn_index", "turn", "reply", "error"]].copy()
-                        shown["reply chars"] = shown["reply"].fillna("").astype(str).str.len()
-                        st.dataframe(shown, width="stretch", height=190)
+                        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                                    'Prompts and replies</div>', unsafe_allow_html=True)
+                        st.markdown(_conversation_html(turns), unsafe_allow_html=True)
 
                 if judge_df is not None:
                     votes = judge_df[(judge_df["model"] == row["model"])
                                      & (judge_df["item_id"] == row["item_id"])]
                     if not votes.empty:
-                        st.markdown('<div class="ns-eyebrow">Judge votes</div>',
-                                    unsafe_allow_html=True)
-                        st.dataframe(votes[["call", "judge_model", "judge_value",
-                                            "judge_rationale", "judge_error"]],
-                                     width="stretch", height=190)
+                        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                                    'Judge panel</div>', unsafe_allow_html=True)
+                        st.markdown(_judge_cards_html(votes), unsafe_allow_html=True)
+                        if "prompt" in votes.columns:
+                            with st.expander("Grading prompt sent to the judge panel"):
+                                for call in votes["call"].unique():
+                                    p = votes.loc[votes["call"] == call, "prompt"].iloc[0]
+                                    if isinstance(p, str) and p:
+                                        st.markdown(f"**{call}**")
+                                        st.text(p)
 
-                detail_raw = row.get("detail_json")
-                if isinstance(detail_raw, str) and detail_raw:
-                    with st.expander("Scoring detail"):
-                        try:
-                            st.json(json.loads(detail_raw))
-                        except json.JSONDecodeError:
-                            st.caption("detail_json could not be parsed.")
+                with st.expander("Raw scoring detail (detail_json)"):
+                    if detail:
+                        st.json(detail)
+                    else:
+                        st.caption("detail_json could not be parsed.")
 
         _section("Files", "Everything this run wrote")
         dl = st.columns(5)

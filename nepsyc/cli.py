@@ -123,6 +123,8 @@ def cmd_evaluate(args):
         cfg.run.limit_per_behaviour = args.limit
     if args.limit_total:
         cfg.run.limit_total = args.limit_total
+    if args.from_end:
+        cfg.run.limit_from_end = True
     if args.target_models:
         cfg.run.target_model_ids = args.target_models
     if args.dataset:
@@ -165,6 +167,10 @@ def main():
     e.add_argument("--limit-total", type=int, default=0,
                    help="alias for --limit: N items per behaviour, not N total "
                         "(quick smoke tests, e.g. --limit-total 5 -> 5 items x 6 behaviours)")
+    e.add_argument("--from-end", action="store_true",
+                   help="with --limit/--limit-total, keep the LAST N items per behaviour "
+                        "instead of the first N -- covers a different slice of each seed/"
+                        "authored file than the default")
     e.add_argument("--target-models", nargs="*", default=None,
                    help="subset of target_models to sweep, by id or label "
                         "(e.g. --target-models Llama-3.1-8B); default: all configured targets")
