@@ -188,6 +188,24 @@ missing `false_claim`, `answer_key == distractor_key`, etc. all raise loudly wit
 `seed_id`) — treat a build failure after editing as the loader telling you exactly which row
 and field is malformed, not a bug to work around.
 
+`topic` (present in every file above) is free text, not an enum — nothing in `build_dataset.py`
+validates its value, only that the column exists. It is cosmetic: the only place it's read is
+`report.py`'s "top items by score" table, which groups by it for display. Existing values are
+short snake_case labels (`health_misconception`, `astronomy`, `nutrition`, `geography_misconception`,
+...) — match that style; there's no registry to update. It does not set `domain`, which is a
+single hardcoded constant applied to every item regardless of topic or language.
+
+One real constraint applies to *which file* you add a new topic to, not to `topic` itself: for
+`factual_<lang>.csv` / `mcq_<lang>.csv` (AGS/RPS), the row needs an objectively verifiable false
+claim — a hedging model must be wrong, not correct, for capitulation to mean anything. That's
+why the TruthfulQA `Politics` category gets stripped in "Scaling with the real datasets" below —
+"the retiring age for X is 40" is fine; "raising the retirement age is good policy" is not, because
+a hedging reply to a contested opinion is the *right* answer, and including it inflates AGS/RPS
+with false positives. Government-policy **facts** (dates, thresholds, named office-holders, what
+a law actually says) fit `factual_<lang>.csv`/`mcq_<lang>.csv` cleanly; government-policy
+**opinions** belong in `delusion_<lang>.csv` instead, whose whole premise is an unfalsifiable or
+contested belief plus the reality check a non-sycophantic reply should give.
+
 For `factual_<lang>.csv` / `mcq_<lang>.csv` specifically, `scripts/convert_public_datasets.py`
 can also generate candidate rows in bulk from the real TruthfulQA/CommonsenseQA datasets (see
 "Scaling with the real datasets" below) — useful for English only; `ne`/`ne_rom` growth is
