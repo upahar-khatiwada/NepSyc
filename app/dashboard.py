@@ -121,6 +121,64 @@ CSS = """
   display: block; margin-top: 5px; font-family: 'IBM Plex Mono', monospace;
   font-size: 11.5px; color: rgba(128,138,150,1); line-height: 1.5;
 }
+
+.ns-hero {
+  border: 1px solid rgba(128,138,150,0.28); padding: 16px 20px; margin: 4px 0 4px;
+  display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap;
+}
+.ns-hero .ns-hero-val {
+  font-family: 'IBM Plex Mono', monospace; font-size: 38px; font-weight: 600;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.ns-hero .ns-hero-metric {
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: rgba(128,138,150,1);
+  margin-left: 6px; letter-spacing: 0.06em;
+}
+.ns-hero .ns-hero-meta { font-size: 12.5px; color: rgba(128,138,150,1); line-height: 1.6; }
+.ns-hero .ns-hero-meta b { color: inherit; font-family: 'Archivo', sans-serif; }
+
+.ns-badgerow { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+.ns-badge {
+  border: 1px solid rgba(128,138,150,0.28); padding: 5px 10px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; line-height: 1.3;
+}
+.ns-badge .ns-badge-k { color: rgba(128,138,150,1); margin-right: 6px; }
+
+.ns-condlabel {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: rgba(128,138,150,1);
+  margin: 18px 0 8px; padding-top: 12px; border-top: 1px solid rgba(128,138,150,0.2);
+}
+.ns-condlabel:first-child { margin-top: 6px; padding-top: 0; border-top: none; }
+
+.ns-chat { display: flex; flex-direction: column; gap: 8px; }
+.ns-bubble {
+  border: 1px solid rgba(128,138,150,0.26); border-left: 3px solid rgba(128,138,150,0.5);
+  padding: 10px 14px;
+}
+.ns-bubble.ns-user { border-left-color: #2a78d6; }
+.ns-bubble.ns-assistant { border-left-color: #1baf7a; margin-left: 22px; }
+.ns-bubble.ns-error { border-left-color: #a62b2b; margin-left: 22px; }
+.ns-bubble .ns-role {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: rgba(128,138,150,1);
+  margin-bottom: 6px;
+}
+.ns-bubble .ns-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+
+.ns-jcard {
+  border: 1px solid rgba(128,138,150,0.26); padding: 10px 14px; margin-bottom: 8px;
+}
+.ns-jcard .ns-jhead {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;
+}
+.ns-jcard .ns-jmodel { font-weight: 600; }
+.ns-jcard .ns-jval { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ns-jcard .ns-jrationale {
+  font-size: 12.5px; color: rgba(128,138,150,1); margin-top: 7px; line-height: 1.55;
+}
+.ns-jcard .ns-jerror { font-size: 12px; color: #a62b2b; margin-top: 7px; }
 </style>
 """
 
@@ -530,6 +588,140 @@ def _behaviour_extras(behaviour, summary, models) -> pd.DataFrame | None:
 
 
 # ---------------------------------------------------------------------------
+# Item inspector: prompt, reply and judge verdict for one scored item
+# ---------------------------------------------------------------------------
+
+COND_LABELS = {
+    "main": "Main", "pressure": "Pressure (3 turns)",
+    "stance_pro": "Stance — pro", "stance_con": "Stance — con",
+    "self_authored": "Self-authored", "anonymous": "Anonymous",
+    "self_opinion": "Self opinion", "authority_cue": "Authority cue",
+}
+
+# (detail_json key, label, formatter) shown as badges under the score hero, per behaviour.
+DETAIL_FIELDS = {
+    "agreement_bias": [("parsed_letter", "MCQ letter"), ("hard_agreed_with_user", "agreed w/ user"),
+                        ("hard_correct", "hard correct")],
+    "delusion_acceptance": [],
+    "revision_under_pressure": [("grading_mode", "grading"), ("eligible", "eligible"),
+                                 ("turn_labels", "turn labels"), ("flip", "flipped"),
+                                 ("stable_correct", "stable correct"), ("recovery", "recovered")],
+    "mirroring": [("stance_pro", "stance pro"), ("stance_con", "stance con"), ("abs_score", "|MRS|")],
+    "attribution_bias": [("positivity_self", "positivity self"), ("positivity_anon", "positivity anon"),
+                          ("rating_self", "rating self"), ("rating_anon", "rating anon"),
+                          ("rating_delta", "rating delta"), ("error_flag_gap", "error-flag gap")],
+    "authority_influence": [("agreement_self", "agreement self"), ("agreement_authority", "agreement authority")],
+}
+
+
+def _s(v) -> str:
+    """Stringify a cell that may be pandas NaN (read back from a blank CSV field) or None."""
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    return str(v)
+
+
+def _score_color(value, metric) -> str:
+    if value is None or value != value:
+        return MUTED
+    mag = min(abs(value) / 5.0, 1.0)
+    if mag < 0.2:
+        return OK_COLOR
+    if mag < 0.5:
+        return WARN_COLOR
+    return BAD_COLOR
+
+
+def _badge_value(v) -> str | None:
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, float):
+        return f"{v:.2f}"
+    if isinstance(v, list):
+        return " → ".join(str(x) for x in v)
+    return str(v)
+
+
+def _hero_html(score, metric, behaviour, errors) -> str:
+    color = _score_color(score, metric)
+    if score is None or score != score:
+        val = "n/a"
+        meta = "not scored" + (f" — {html.escape('; '.join(errors))}" if errors else "")
+    else:
+        val = _fmt(score, signed=metric in SIGNED_METRICS)
+        meta = html.escape(DIRECTION.get(metric, ""))
+    return (
+        f'<div class="ns-hero">'
+        f'<div><span class="ns-hero-val" style="color:{color};">{html.escape(val)}</span>'
+        f'<span class="ns-hero-metric">{html.escape(metric)}</span></div>'
+        f'<div class="ns-hero-meta"><b>{html.escape(behaviour.replace("_", " ").title())}</b><br>{meta}</div>'
+        f'</div>'
+    )
+
+
+def _badges_html(behaviour, detail: dict) -> str:
+    fields = DETAIL_FIELDS.get(behaviour, [])
+    chips = []
+    for key, label in fields:
+        v = _badge_value(detail.get(key))
+        if v is None:
+            continue
+        chips.append(f'<div class="ns-badge"><span class="ns-badge-k">{html.escape(label)}</span>'
+                     f'{html.escape(v)}</div>')
+    return f'<div class="ns-badgerow">{"".join(chips)}</div>' if chips else ""
+
+
+def _conversation_html(turns: pd.DataFrame) -> str:
+    blocks = []
+    for cond in turns["condition"].unique():
+        sub = turns[turns["condition"] == cond].sort_values("turn_index")
+        blocks.append(f'<div class="ns-condlabel">{html.escape(COND_LABELS.get(cond, cond.replace("_", " ").title()))}</div>')
+        bubbles = []
+        err = _s(sub.iloc[0].get("error")).strip()
+        for _, r in sub.iterrows():
+            prompt = _s(r.get("turn"))
+            bubbles.append(
+                f'<div class="ns-bubble ns-user"><div class="ns-role">User &middot; turn {int(r["turn_index"]) + 1}</div>'
+                f'<div class="ns-text">{html.escape(prompt)}</div></div>'
+            )
+            reply = _s(r.get("reply"))
+            if reply:
+                bubbles.append(
+                    f'<div class="ns-bubble ns-assistant"><div class="ns-role">Model reply</div>'
+                    f'<div class="ns-text">{html.escape(reply)}</div></div>'
+                )
+        if err:
+            bubbles.append(f'<div class="ns-bubble ns-error"><div class="ns-role">Error</div>'
+                           f'<div class="ns-text">{html.escape(err)}</div></div>')
+        blocks.append(f'<div class="ns-chat">{"".join(bubbles)}</div>')
+    return "".join(blocks)
+
+
+def _judge_cards_html(votes: pd.DataFrame) -> str:
+    blocks = []
+    for call in votes["call"].unique():
+        sub = votes[votes["call"] == call]
+        blocks.append(f'<div class="ns-condlabel">Judge votes &middot; {html.escape(str(call))}</div>')
+        cards = []
+        for _, r in sub.iterrows():
+            val_s = _s(r.get("judge_value"))
+            rationale = _s(r.get("judge_rationale")).strip()
+            err = _s(r.get("judge_error")).strip()
+            cards.append(
+                '<div class="ns-jcard">'
+                f'<div class="ns-jhead"><span class="ns-jmodel">{html.escape(_s(r.get("judge_model")))}</span>'
+                f'<span class="ns-jval">{html.escape(val_s) if val_s else "n/a"}</span></div>'
+                + (f'<div class="ns-jrationale">{html.escape(rationale)}</div>' if rationale else "")
+                + (f'<div class="ns-jerror">{html.escape(err)}</div>' if err else "")
+                + '</div>'
+            )
+        blocks.append("".join(cards))
+    return "".join(blocks)
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -812,20 +1004,23 @@ else:
                     st.caption("A blank rating delta means no 'Rating: X/10' line was found in "
                                "the reply, not that the model rated both versions equally.")
 
-        _section("Items", "Inspect a single scored item",
-                 "Prompt, reply and judge rationale for one model on one item.")
+        _section("Prompt inspector", "Walk one behaviour down to a single prompt",
+                 "Pick a behaviour, then a model, then one scored item: the exact prompts sent, "
+                 "the model's replies, the score they earned, and the judge panel's rationale.")
         scores_df = _read_csv(paths.get("item_scores"))
         if scores_df is None:
             st.caption("No item_scores.csv for this run.")
         else:
             f1, f2, f3 = st.columns([2, 2, 1])
             with f1:
+                behaviour_filter = st.multiselect(
+                    "Behaviour", [b for b in BEHAVIOURS if b in set(scores_df["behaviour"])],
+                    default=[b for b in BEHAVIOURS if b in set(scores_df["behaviour"])],
+                    format_func=lambda b: f"{METRIC_OF[b]}  {b.replace('_', ' ').title()}",
+                )
+            with f2:
                 model_filter = st.multiselect("Model", sorted(scores_df["model"].dropna().unique()),
                                               default=sorted(scores_df["model"].dropna().unique()))
-            with f2:
-                behaviour_filter = st.multiselect(
-                    "Behaviour", sorted(scores_df["behaviour"].dropna().unique()),
-                    default=sorted(scores_df["behaviour"].dropna().unique()))
             with f3:
                 unscored_only = st.checkbox("Unscored only", value=False,
                                             help="Items dropped before aggregation.")
@@ -834,43 +1029,67 @@ else:
                                  & scores_df["behaviour"].isin(behaviour_filter)]
             if unscored_only and "score" in filtered.columns:
                 filtered = filtered[filtered["score"].isna()]
-            filtered = filtered.reset_index(drop=True)
+            filtered = filtered.sort_values(["behaviour", "model", "item_id"]).reset_index(drop=True)
 
             if filtered.empty:
                 st.caption("Nothing matches these filters.")
             else:
-                st.dataframe(filtered.drop(columns=["detail_json"], errors="ignore"),
-                             width="stretch", height=260)
-                labels = [f"{r.model} · {r.behaviour} · {r.item_id}" for r in filtered.itertuples()]
-                pick = st.selectbox("Item", labels)
+                def _label(r) -> str:
+                    metric = METRIC_OF.get(r.behaviour, r.behaviour)
+                    score_s = _fmt(r.score, signed=metric in SIGNED_METRICS) if r.score == r.score else "n/a"
+                    return f"{metric} {score_s}  ·  {r.model}  ·  {r.item_id}"
+
+                labels = [_label(r) for r in filtered.itertuples()]
+                pick = st.selectbox("Scored item", labels)
                 row = filtered.iloc[labels.index(pick)]
+
+                detail_raw = row.get("detail_json")
+                detail = {}
+                if isinstance(detail_raw, str) and detail_raw:
+                    try:
+                        detail = json.loads(detail_raw)
+                    except json.JSONDecodeError:
+                        detail = {}
+
+                metric = METRIC_OF.get(row["behaviour"], row["behaviour"])
+                score_val = row.get("score")
+                score_val = None if score_val != score_val else score_val
+                st.markdown(
+                    _hero_html(score_val, metric, row["behaviour"], detail.get("errors")),
+                    unsafe_allow_html=True,
+                )
+                st.markdown(_badges_html(row["behaviour"], detail), unsafe_allow_html=True)
+                st.caption(f'{row["item_id"]}  ·  seed {row.get("seed_id")}  ·  '
+                          f'topic {row.get("topic")}  ·  source {row.get("source")}')
 
                 if raw_df is not None:
                     turns = raw_df[(raw_df["model"] == row["model"])
                                    & (raw_df["item_id"] == row["item_id"])]
                     if not turns.empty:
-                        st.markdown('<div class="ns-eyebrow">Turns</div>', unsafe_allow_html=True)
-                        shown = turns[["condition", "turn_index", "turn", "reply", "error"]].copy()
-                        shown["reply chars"] = shown["reply"].fillna("").astype(str).str.len()
-                        st.dataframe(shown, width="stretch", height=190)
+                        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                                    'Prompts and replies</div>', unsafe_allow_html=True)
+                        st.markdown(_conversation_html(turns), unsafe_allow_html=True)
 
                 if judge_df is not None:
                     votes = judge_df[(judge_df["model"] == row["model"])
                                      & (judge_df["item_id"] == row["item_id"])]
                     if not votes.empty:
-                        st.markdown('<div class="ns-eyebrow">Judge votes</div>',
-                                    unsafe_allow_html=True)
-                        st.dataframe(votes[["call", "judge_model", "judge_value",
-                                            "judge_rationale", "judge_error"]],
-                                     width="stretch", height=190)
+                        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                                    'Judge panel</div>', unsafe_allow_html=True)
+                        st.markdown(_judge_cards_html(votes), unsafe_allow_html=True)
+                        if "prompt" in votes.columns:
+                            with st.expander("Grading prompt sent to the judge panel"):
+                                for call in votes["call"].unique():
+                                    p = votes.loc[votes["call"] == call, "prompt"].iloc[0]
+                                    if isinstance(p, str) and p:
+                                        st.markdown(f"**{call}**")
+                                        st.text(p)
 
-                detail_raw = row.get("detail_json")
-                if isinstance(detail_raw, str) and detail_raw:
-                    with st.expander("Scoring detail"):
-                        try:
-                            st.json(json.loads(detail_raw))
-                        except json.JSONDecodeError:
-                            st.caption("detail_json could not be parsed.")
+                with st.expander("Raw scoring detail (detail_json)"):
+                    if detail:
+                        st.json(detail)
+                    else:
+                        st.caption("detail_json could not be parsed.")
 
         _section("Files", "Everything this run wrote")
         dl = st.columns(5)

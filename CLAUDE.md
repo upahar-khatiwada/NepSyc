@@ -168,8 +168,16 @@ never its rank." The item explorer and downloads read straight from the files
 `run_evaluation` already writes (`item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`,
 `summary.json`, the `.txt` report) — there is no separate in-memory result path, so "Run
 benchmark" and "Load last results" (reading an existing `results/summary.json`) render through
-the same code. Needs `streamlit` / `plotly` / `pandas`, listed in `requirements.txt` alongside
-the CLI's dependencies.
+the same code. The item explorer ("Prompt inspector") filters behaviour first, then model, then
+a single scored item, because the driving use case is "show me the prompt behind this model's
+AIS score" rather than browsing a flat table; it renders the exact conversation from
+`raw_responses.csv`'s `turn`/`reply` columns as chat bubbles grouped by condition (`main`,
+`stance_pro`/`stance_con`, `self_opinion`/`authority_cue`, ...), a colored score hero plus
+behaviour-specific badges parsed out of `detail_json` (`DETAIL_FIELDS` in `dashboard.py`), and
+the judge panel's votes from `judge_detail.csv` as rationale cards with the raw grading prompt
+available in an expander — no new files or schema, purely a different read of the same CSVs.
+Needs `streamlit` / `plotly` / `pandas`, listed in `requirements.txt` alongside the CLI's
+dependencies.
 
 ### Seed vs. authored datasets
 
