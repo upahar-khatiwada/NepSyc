@@ -10,6 +10,7 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -465,6 +466,124 @@ def _judge_model_options(cfg, info: dict, provider: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Local hidden-state analysis (scripts/analyze_hidden_states.py's output)
+#
+# That script downloads a target model's real weights via transformers and reads its
+# internal per-layer hidden states -- something no API-served model (config.yaml's
+# target_models without an hf_repo_id, which includes anything OpenAI-only) can expose.
+# It always runs offline, never from inside this process, so everything here just reads
+# whatever CSVs it already wrote under results/hidden_states/.
+# ---------------------------------------------------------------------------
+
+HIDDEN_STATES_DIR = ROOT / "results" / "hidden_states"
+HS_HEATMAP_MAX_COLS = 600  # above this many hidden dims, group-average down for render speed
+
+
+def _load_hidden_meta() -> pd.DataFrame | None:
+    return _read_csv(HIDDEN_STATES_DIR / "meta.csv")
+
+
+def _load_hidden_replies(language: str) -> pd.DataFrame | None:
+    return _read_csv(HIDDEN_STATES_DIR / language / "replies.csv")
+
+
+def _hs_slice(df: pd.DataFrame, condition: str, turn_index: int) -> pd.DataFrame:
+    return df[(df["condition"] == condition) & (df["turn_index"] == turn_index)].sort_values("layer")
+
+
+def _hs_magnitude_fig(vecs_by_model: dict, condition: str, turn_index: int, color_by_model: dict):
+    fig = go.Figure()
+    plotted = False
+    for m, df in vecs_by_model.items():
+        sub = _hs_slice(df, condition, turn_index)
+        if sub.empty:
+            continue
+        plotted = True
+        fig.add_scatter(
+            x=sub["layer"], y=sub["l2_norm"], mode="lines+markers", name=m,
+            line=dict(color=color_by_model[m], width=2), marker=dict(size=6),
+            hovertemplate=f"{m}<br>layer %{{x}}<br>L2 norm %{{y:.3f}}<extra></extra>",
+        )
+    if not plotted:
+        return None
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=310,
+        xaxis_title="layer (0 = embedding)", yaxis_title="L2 norm",
+        legend=dict(orientation="h", y=-0.22),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(showgrid=False, dtick=1)
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    return fig
+
+
+def _hs_pca_fig(vecs_by_model: dict, condition: str, turn_index: int, color_by_model: dict):
+    """One trace per model: its own per-layer vectors projected to 2D by their own PCA fit
+    (not a shared cross-model basis -- see nepsyc.hidden_states.pca_trajectory). Reading two
+    models' trajectories side by side still shows how much a model's representation moves
+    layer to layer, just not on directly comparable axes across models."""
+    fig = go.Figure()
+    plotted = False
+    for m, df in vecs_by_model.items():
+        sub = _hs_slice(df, condition, turn_index)
+        if sub.empty:
+            continue
+        plotted = True
+        fig.add_scatter(
+            x=sub["pca_x"], y=sub["pca_y"], mode="lines+markers", name=m,
+            line=dict(color=color_by_model[m], width=2), marker=dict(size=7),
+            customdata=sub["layer"],
+            hovertemplate=f"{m}<br>layer %{{customdata}}<extra></extra>",
+        )
+    if not plotted:
+        return None
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=340,
+        xaxis_title="PCA 1", yaxis_title="PCA 2",
+        legend=dict(orientation="h", y=-0.16),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(gridcolor="rgba(128,138,150,0.18)", zeroline=True, zerolinecolor="rgba(128,138,150,0.4)")
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.18)", zeroline=True, zerolinecolor="rgba(128,138,150,0.4)")
+    return fig
+
+
+def _hs_heatmap_fig(df: pd.DataFrame, condition: str, turn_index: int):
+    """Every hidden dimension at every layer, one model at a time -- the "advanced,
+    beyond-just-magnitude" view. Sequential single-hue scale (Blues) since this encodes
+    magnitude, not identity or polarity. Dimension count is grouped down to
+    HS_HEATMAP_MAX_COLS columns by simple block-averaging when a model's hidden size
+    exceeds it, purely so the browser isn't asked to lay out tens of thousands of cells."""
+    sub = _hs_slice(df, condition, turn_index)
+    if sub.empty:
+        return None
+    dim_cols = [c for c in sub.columns if c.startswith("dim_")]
+    mat = sub[dim_cols].to_numpy()
+    n_dims = mat.shape[1]
+    grouped = n_dims > HS_HEATMAP_MAX_COLS
+    if grouped:
+        group = -(-n_dims // HS_HEATMAP_MAX_COLS)  # ceil div
+        pad = (-n_dims) % group
+        if pad:
+            mat = np.pad(mat, ((0, 0), (0, pad)), mode="edge")
+        mat = mat.reshape(mat.shape[0], -1, group).mean(axis=2)
+
+    fig = go.Figure(go.Heatmap(
+        z=mat, y=sub["layer"], colorscale="Blues", colorbar=dict(title="value", thickness=12),
+        hovertemplate="layer %{y}<br>dim group %{x}<br>value %{z:.3f}<extra></extra>",
+    ))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=280,
+        xaxis_title=f"hidden dimension{f' (grouped, {group} per cell)' if grouped else ''}",
+        yaxis_title="layer", font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -902,6 +1021,114 @@ else:
                                     if isinstance(p, str) and p:
                                         st.markdown(f"**{call}**")
                                         st.text(p)
+
+                lang_for_hs = active_lang if active_lang in LANGUAGES else None
+                hs_meta = _load_hidden_meta()
+                item_hs_meta = None
+                if hs_meta is not None and not hs_meta.empty:
+                    item_hs_meta = hs_meta[hs_meta["item_id"] == row["item_id"]]
+                    if lang_for_hs:
+                        item_hs_meta = item_hs_meta[item_hs_meta["language"] == lang_for_hs]
+
+                st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                            'Local hidden-state analysis</div>', unsafe_allow_html=True)
+                ineligible = [t.label for t in cfg.target_models if not t.hf_repo_id]
+                if item_hs_meta is None or item_hs_meta.empty:
+                    st.caption(
+                        "No local hidden-state run for this item yet. From a terminal: "
+                        f"python scripts/analyze_hidden_states.py --item-id {row['item_id']} "
+                        f"--language {lang_for_hs or cfg.run.language}"
+                    )
+                    if ineligible:
+                        st.caption("Not eligible for this feature (no hf_repo_id in config.yaml): "
+                                  + ", ".join(ineligible))
+                else:
+                    hs_replies = _load_hidden_replies(item_hs_meta.iloc[0]["language"])
+                    hs_replies_item = (hs_replies[hs_replies["item_id"] == row["item_id"]]
+                                       if hs_replies is not None else None)
+
+                    all_hs_labels = sorted(item_hs_meta["model_label"].unique())
+                    hs_models = st.multiselect(
+                        "Models to show", all_hs_labels, default=all_hs_labels,
+                        key=f"hs_models_{row['item_id']}",
+                        help="Only target_models with hf_repo_id set in config.yaml can run "
+                             "here (weights loaded locally) -- that excludes any API-only "
+                             "model such as OpenAI's.",
+                    )
+                    if ineligible:
+                        st.caption("Not eligible (no local weights configured): " + ", ".join(ineligible))
+
+                    if not hs_models:
+                        st.caption("Select at least one model.")
+                    elif hs_replies_item is None or hs_replies_item.empty:
+                        st.caption("meta.csv references a run whose replies.csv is missing.")
+                    else:
+                        conditions_present = sorted(hs_replies_item["condition"].unique())
+                        hsc1, hsc2 = st.columns([2, 1])
+                        with hsc1:
+                            hs_condition = st.selectbox(
+                                "Condition", conditions_present,
+                                format_func=lambda c: COND_LABELS.get(c, c.replace("_", " ").title()),
+                                key=f"hs_cond_{row['item_id']}",
+                            )
+                        turns_present = sorted(
+                            hs_replies_item.loc[hs_replies_item["condition"] == hs_condition, "turn_index"].unique()
+                        )
+                        with hsc2:
+                            hs_turn = (st.selectbox("Turn", turns_present, format_func=lambda i: f"Turn {i + 1}",
+                                                    key=f"hs_turn_{row['item_id']}")
+                                      if len(turns_present) > 1 else turns_present[0])
+
+                        vecs_by_model = {}
+                        for m in hs_models:
+                            mrow = item_hs_meta[item_hs_meta["model_label"] == m]
+                            if mrow.empty:
+                                continue
+                            vdf = _read_csv(ROOT / mrow.iloc[0]["vectors_path"])
+                            if vdf is not None:
+                                vecs_by_model[m] = vdf
+                        hs_color_by_model = color_map(sorted(vecs_by_model))
+
+                        st.markdown('<div class="ns-eyebrow" style="margin-top:10px;">'
+                                    'Local replies</div>', unsafe_allow_html=True)
+                        for m in hs_models:
+                            turns = hs_replies_item[(hs_replies_item["model"] == m)
+                                                    & (hs_replies_item["condition"] == hs_condition)]
+                            if not turns.empty:
+                                with st.expander(f"{m}  ·  reply"):
+                                    st.markdown(_conversation_html(turns), unsafe_allow_html=True)
+
+                        mag_fig = _hs_magnitude_fig(vecs_by_model, hs_condition, hs_turn, hs_color_by_model)
+                        if mag_fig is not None:
+                            st.markdown('<div class="ns-eyebrow" style="margin-top:14px;">'
+                                        'Layer magnitude (L2 norm)</div>', unsafe_allow_html=True)
+                            st.plotly_chart(mag_fig, width="stretch")
+
+                        pca_fig = _hs_pca_fig(vecs_by_model, hs_condition, hs_turn, hs_color_by_model)
+                        if pca_fig is not None:
+                            st.markdown('<div class="ns-eyebrow" style="margin-top:14px;">'
+                                        'Layer trajectory (PCA of the full hidden vector)</div>',
+                                        unsafe_allow_html=True)
+                            st.plotly_chart(pca_fig, width="stretch")
+
+                        st.markdown('<div class="ns-eyebrow" style="margin-top:14px;">'
+                                    'Per-dimension heatmap</div>', unsafe_allow_html=True)
+                        for m in hs_models:
+                            if m not in vecs_by_model:
+                                continue
+                            heat_fig = _hs_heatmap_fig(vecs_by_model[m], hs_condition, hs_turn)
+                            if heat_fig is not None:
+                                with st.expander(f"{m}  ·  all hidden dimensions by layer",
+                                                 expanded=len(hs_models) == 1):
+                                    st.plotly_chart(heat_fig, width="stretch")
+
+                        st.caption(
+                            "prompt_type is 'sycophantic' for every row here -- these conditions are "
+                            "themselves the sycophancy-framed prompts NepSyc builds. A normal/unframed "
+                            "counterpart isn't in the dataset yet; once build_dataset.py adds one, this "
+                            "same vectors CSV schema (prompt_type column) is ready for a cosine-"
+                            "similarity comparison without a format change."
+                        )
 
                 with st.expander("Raw scoring detail (detail_json)"):
                     if detail:

@@ -66,11 +66,20 @@ generation:
 #  TARGET MODELS -- the models being tested for sycophancy.
 #  A model only needs a `provider:` line if it lives somewhere OTHER than
 #  run.default_provider above.
+#
+#  hf_repo_id (optional): a Hugging Face Hub repo id this model's weights can be loaded
+#  from locally with transformers.AutoModelForCausalLM. Only used by
+#  scripts/analyze_hidden_states.py and the dashboard's "Local hidden-state analysis"
+#  section -- unrelated to how the model is served for the actual eval sweep above. Leave
+#  it unset for anything with no local weights to load (any API-only model, e.g. OpenAI's)
+#  or whose served id isn't itself a standard-format HF repo (e.g. a quantized gateway
+#  build) -- such models are simply not offered by that feature.
 # ---------------------------------------------------------------------------
 target_models:
 
   # Your endpoint. Verify the model id against /v1/models before a real run;
   # some gateways use a display label that looks like the id but is not.
+  # No hf_repo_id: unsloth's NVFP4 quantized build isn't a standard transformers checkpoint.
   - id: unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
     label: Qwen3.6-35B
     strip_think: true
@@ -79,12 +88,15 @@ target_models:
   # - id: llama-3.3-70b-versatile
   #   label: Llama-3.3-70B
   #   provider: groq
+  #   hf_repo_id: meta-llama/Llama-3.1-70B-Instruct   # gated: needs HF_TOKEN + accepted license
   - id: llama-3.1-8b-instant
     label: Llama-3.1-8B
     provider: groq
+    # hf_repo_id: meta-llama/Llama-3.1-8B-Instruct    # gated: needs HF_TOKEN + accepted license
   - id: openai/gpt-oss-20b
-    label: GPT-OSS-20B 
+    label: GPT-OSS-20B
     provider: groq
+    hf_repo_id: openai/gpt-oss-20b   # public checkpoint, same id as the Groq-served model
 
 
 # ---------------------------------------------------------------------------

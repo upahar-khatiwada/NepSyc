@@ -26,6 +26,13 @@ class ModelSpec:
     api_key_env: Optional[str] = None
     # Some hosted reasoning models emit <think> blocks; we strip them before judging.
     strip_think: bool = True
+    # Hugging Face Hub repo id (e.g. "Qwen/Qwen2.5-1.5B-Instruct"), for local hidden-state
+    # extraction only (scripts/analyze_hidden_states.py, app/dashboard.py's "Local hidden-state
+    # analysis" section). Distinct from `id` above: `id` is whatever the API gateway expects,
+    # which for Groq and similar is not a loadable HF repo. None (the default) means this model
+    # is not eligible for that feature -- true for any API-only model such as OpenAI's, which
+    # has no local weights to load at all.
+    hf_repo_id: Optional[str] = None
 
 
 @dataclass
