@@ -218,10 +218,49 @@ language the active run's dataset is in rather than only ever showing English. O
 picked, it renders the exact conversation from `raw_responses.csv`'s `turn`/`reply` columns as
 chat bubbles grouped by condition (`main`, `stance_pro`/`stance_con`, `self_opinion`/
 `authority_cue`, ...), a colored score hero plus behaviour-specific badges parsed out of
-`detail_json` (`DETAIL_FIELDS` in `dashboard.py`), and the judge panel's votes from
+`detail_json` (`DETAIL_FIELDS` in `app/dash_common.py`), and the judge panel's votes from
 `judge_detail.csv` as rationale cards with the raw grading prompt available in an expander — no
 new files or schema, purely a different read of the same CSVs. Needs `streamlit` / `plotly` /
 `pandas`, listed in `requirements.txt` alongside the CLI's dependencies.
+
+### Shared dashboard helpers (`app/dash_common.py`)
+
+Constants and pure-render helpers used by both `app/dashboard.py` and every page under
+`app/pages/` live here, not in `dashboard.py` itself: the `CSS` block (`ns-*` classes), the
+categorical color palette and `color_map()`, `SIGNED_METRICS`/`LANGUAGE_LABELS`,
+`COND_LABELS`/`DETAIL_FIELDS`, and the html builders (`hero_html`, `badges_html`,
+`conversation_html`, `judge_cards_html`, plus the annotation page's `prompts_only_html`/
+`replies_only_html` split). This module has no top-level widget calls or `st.set_page_config`,
+so importing it is side-effect free — the reason it's a plain module and not something
+`dashboard.py` exposes for the pages to import, since importing a Streamlit *page* script
+(as opposed to a helpers module) re-executes everything in it, sidebar included. Every page
+that uses the `ns-*` markup must call `st.markdown(dash_common.CSS, unsafe_allow_html=True)`
+itself — CSS injected by `dashboard.py` does not carry over to other pages, each gets a fresh
+DOM on navigation.
+
+### Human annotation page (`app/pages/1_Human_Annotation.py`)
+
+A second page, reachable from the sidebar nav Streamlit generates automatically for anything
+under `app/pages/` (classic pages-directory convention — no `st.navigation`/`st.Page` call
+needed, and `dashboard.py` stays the entry point run via `streamlit run app/dashboard.py`).
+Built for comparing models and annotating by hand, which the main page's "Prompt inspector"
+doesn't do well: that one filters down to a single (behaviour, model, item) triple, so
+comparing how three models answered the *same* prompt means re-picking the model and losing
+your place. This page instead picks a (behaviour, item) pair — independent of model — shows
+the shared prompt once (`prompts_only_html`, pulled from whichever selected model has it in
+`raw_responses.csv`, since the turns are identical across models for one item), then renders
+one column per model (native `st.container(border=True)`, not a hand-rolled HTML div — a div
+opened in one `st.markdown` call and closed in another does not actually nest around
+Streamlit-native elements written in between, they render as sibling DOM nodes) holding that
+model's own replies (`replies_only_html`), its score for the behaviour (`hero_html`, compact
+form), behaviour-specific badges, and its judge-panel votes/rationale from `judge_detail.csv`
+(`judge_cards_html`) with the grading prompt in an expander. Above the columns, a compact
+`ns-strip` of gauges gives the score for every selected model at a glance before drilling into
+any one of them. More than four selected models switches from columns to `st.tabs` so each
+model's block stays full width instead of being squeezed. Reads `st.session_state["dash_results"]`
+and `st.session_state["dash_lang_view"]`, written by `dashboard.py`'s "Run benchmark"/"Load last
+results" — session state is shared across pages in one browser session, so this page never runs
+a sweep itself; if `dash_results` isn't set yet it just points back at the main page and stops.
 
 ### Seed vs. authored datasets
 
