@@ -1,0 +1,25 @@
+seed_id,direction,script,source_text,reference_texts,notes
+CMP001,en_to_ne,devanagari,The sun rises in the east.,सूर्य पूर्वबाट उदाउँछ।,basic factual sentence
+CMP002,en_to_ne,devanagari,I am going to school.,म विद्यालय जाँदैछु।,simple present continuous
+CMP003,en_to_ne,devanagari,She is drinking water.,उनी पानी पिउँदैछिन्।,"simple present continuous, feminine verb agreement"
+CMP004,en_to_ne,devanagari,This book is very good.,यो किताब धेरै राम्रो छ।,simple copula sentence
+CMP005,en_to_ne,romanized,My father works in a hospital.,Mero baba hospital ma kaam garnuhuncha.|Mero buwa hospital ma kaam garnuhuncha.,honorific verb form; buwa/baba both common for father
+CMP006,en_to_ne,romanized,I am going to school.,Ma school jandai chu.|Ma vidyalaya jandai chu.,informal texting register
+CMP007,en_to_ne,romanized,She is drinking water.,Uni pani piudai chin.,feminine verb ending -chin
+CMP008,en_to_ne,romanized,This book is very good.,Yo kitab dherai ramro cha.|Yo kitab dherai ramro chha.,cha/chha spelling both common in romanized Nepali
+CMP009,ne_to_en,devanagari,मलाई भात मन पर्छ।,I like rice.,malai...man parcha construction
+CMP010,ne_to_en,devanagari,आज मौसम राम्रो छ।,The weather is good today.|Today the weather is good.,
+CMP011,ne_to_en,devanagari,उहाँ डाक्टर हुनुहुन्छ।,He is a doctor.|She is a doctor.,honorific pronoun is gender-neutral in Nepali
+CMP012,ne_to_en,devanagari,बच्चाहरू पार्कमा खेलिरहेका छन्।,The children are playing in the park.,plural + present continuous
+CMP013,ne_to_en,romanized,Malai chiya man parcha.,I like tea.,
+CMP014,ne_to_en,romanized,Aja dherai garmi cha.,It is very hot today.|Today it is very hot.,
+CMP015,ne_to_en,romanized,Uni school ma padhaunuhuncha.,He teaches at school.|She teaches at school.,honorific pronoun is gender-neutral in Nepali
+CMP016,ne_to_en,romanized,Yo sahar thulo cha.,This city is big.,
+CMP017,comprehension,devanagari,नेपालको राजधानी के हो?,काठमाडौं|Kathmandu,world-knowledge Q&A, not translation
+CMP018,comprehension,devanagari,एक हप्तामा कति दिन हुन्छन्?,सात|सात दिन|7,numeric answer accepted in digits or words
+CMP019,comprehension,devanagari,एक वर्षमा कति महिना हुन्छन्?,बाह्र|12,numeric answer accepted in digits or words
+CMP020,comprehension,devanagari,पानीको रासायनिक सूत्र के हो?,H2O,
+CMP021,comprehension,romanized,Nepal ko rajdhani k ho?,Kathmandu|Kathmandu ho,
+CMP022,comprehension,romanized,Ek hapta ma kati din huncha?,Saat|7|Saat din,numeric answer accepted in digits or words
+CMP023,comprehension,romanized,Ek barsha ma kati mahina huncha?,Baahra|12,numeric answer accepted in digits or words
+CMP024,comprehension,romanized,Pani ko rasayanik sutra k ho?,H2O,

@@ -26,6 +26,7 @@ from app.dash_common import (  # noqa: E402
     conversation_html as _conversation_html, hero_html as _hero_html,
     judge_cards_html as _judge_cards_html,
 )
+from nepsyc.competence import run_competence_sweep  # noqa: E402
 from nepsyc.config import load_config  # noqa: E402
 from nepsyc.metrics import BEHAVIOURS, METRIC_OF  # noqa: E402
 from nepsyc.pipeline import list_configured_models, run_evaluation  # noqa: E402
@@ -82,6 +83,33 @@ def _gauge(label: str, value: str, foot: str, fraction, color) -> str:
         f'<div class="ns-val" style="color:{color};">{html.escape(value)}</div>'
         f'{_meter(fraction, color)}'
         f'<div class="ns-foot">{html.escape(foot)}</div></div>'
+    )
+
+
+def _dl(col, label, path, mime="text/csv"):
+    if path and path.exists():
+        col.download_button(label, data=path.read_bytes(), file_name=path.name,
+                            mime=mime, width="stretch")
+    else:
+        col.caption(f"{label}: n/a")
+
+
+# ---------------------------------------------------------------------------
+# Language competence (nepsyc/competence.py) -- fully separate axis from the six
+# sycophancy behaviours below: whether a model understands/produces Nepali at all,
+# not whether it flatters the user. Own sidebar controls, own session-state key
+# (dash_competence), own CSVs (competence_scores.csv / competence_summary.csv).
+# ---------------------------------------------------------------------------
+
+VERDICT_COLORS = {"Understands": OK_COLOR, "Partial": WARN_COLOR, "Poor": BAD_COLOR}
+
+
+def _competence_badge_html(model: str, verdict: str, bleu, chrfpp) -> str:
+    color = VERDICT_COLORS.get(verdict, MUTED)
+    return (
+        f'<div class="ns-gauge"><div class="ns-eyebrow">{html.escape(model)}</div>'
+        f'<div class="ns-val" style="color:{color};">{html.escape(verdict or "n/a")}</div>'
+        f'<div class="ns-foot">BLEU {_fmt(bleu)}  &middot;  chrF++ {_fmt(chrfpp)}</div></div>'
     )
 
 
@@ -674,6 +702,25 @@ load_clicked = st.sidebar.button(
           if existing_summary.exists() else "No results/summary.json yet. Run a sweep first."),
 )
 
+st.sidebar.divider()
+st.sidebar.markdown('<div class="ns-eyebrow">Language competence</div>', unsafe_allow_html=True)
+st.sidebar.caption(
+    "A separate axis: translation/comprehension quality against data/seeds/"
+    "competence_probes.csv, scored with BLEU/chrF++ -- not sycophancy. Uses the "
+    "target models and mock toggle above; not tied to the languages selected above."
+)
+competence_dir = ROOT / cfg.competence.output_dir
+existing_competence_summary = competence_dir / "competence_summary.csv"
+competence_run_clicked = st.sidebar.button(
+    "Run language competence check", width="stretch", disabled=not cfg.competence.enabled,
+    help=None if cfg.competence.enabled else "competence.enabled is false in config.yaml",
+)
+competence_load_clicked = st.sidebar.button(
+    "Load last competence results", disabled=not existing_competence_summary.exists(), width="stretch",
+    help=("Render the last competence_summary.csv from disk without re-running."
+          if existing_competence_summary.exists() else "No competence_summary.csv yet. Run a check first."),
+)
+
 # ---------------------------------------------------------------------------
 # Run and load
 # ---------------------------------------------------------------------------
@@ -759,6 +806,37 @@ if load_clicked:
         }}
         st.session_state["dash_lang_view"] = "(loaded from disk)"
 
+if competence_run_clicked:
+    if not selected_target_labels:
+        st.sidebar.error("Select at least one target model.")
+    else:
+        comp_cfg = load_config()
+        comp_cfg.run.target_model_ids = list(selected_target_labels)
+        try:
+            comp_result = run_competence_sweep(comp_cfg, mock=mock_mode)
+        except RuntimeError as e:
+            st.error(f"Language competence check failed: {e}\n\n"
+                     "Turn on Mock mode in the sidebar to run without API keys.")
+        except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
+            st.error(f"Language competence check failed: {e}")
+        else:
+            st.session_state["dash_competence"] = {
+                "summary": comp_result["summary"], "paths": comp_result["paths"],
+                "meta": {"targets": selected_target_labels, "mock": mock_mode},
+            }
+
+if competence_load_clicked:
+    loaded_summary_df = _read_csv(existing_competence_summary)
+    if loaded_summary_df is None:
+        st.error(f"Could not read {existing_competence_summary}")
+    else:
+        st.session_state["dash_competence"] = {
+            "summary": loaded_summary_df.to_dict("records"),
+            "paths": {"competence_scores": competence_dir / "competence_scores.csv",
+                      "competence_summary": existing_competence_summary},
+            "meta": {"targets": None, "mock": None},
+        }
+
 # ---------------------------------------------------------------------------
 # Page
 # ---------------------------------------------------------------------------
@@ -769,6 +847,36 @@ st.markdown(
     'scored by an LLM judge panel.</div></div>',
     unsafe_allow_html=True,
 )
+
+comp_state = st.session_state.get("dash_competence")
+if comp_state:
+    _section("Language competence", "Nepali translation / comprehension probe",
+             "A standalone axis, never pooled with the six sycophancy behaviours below: "
+             "whether each model actually understands and produces Nepali, scored with "
+             "BLEU and chrF++ against human-authored references in data/seeds/"
+             "competence_probes.csv. Verdict thresholds are configurable in config.yaml.")
+    comp_summary_rows = comp_state["summary"]
+    overall_by_model = {r["model"]: r for r in comp_summary_rows if _s(r.get("direction")) == "overall"}
+    comp_models = sorted(overall_by_model)
+    if not comp_models:
+        st.caption("This check produced no scored models.")
+    else:
+        badges = [_competence_badge_html(m, _s(overall_by_model[m].get("verdict")),
+                                         overall_by_model[m].get("bleu"), overall_by_model[m].get("chrfpp"))
+                  for m in comp_models]
+        st.markdown(f'<div class="ns-strip">{"".join(badges)}</div>', unsafe_allow_html=True)
+
+        for m in comp_models:
+            with st.expander(f"{m}  ·  breakdown by direction"):
+                rows = [r for r in comp_summary_rows if r["model"] == m]
+                bdf = (pd.DataFrame(rows).set_index("direction")[["n_items", "bleu", "chrfpp"]]
+                      .rename(columns={"n_items": "items", "bleu": "BLEU", "chrfpp": "chrF++"}))
+                st.dataframe(bdf, width="stretch")
+
+        comp_paths = {k: Path(v) for k, v in comp_state["paths"].items() if v}
+        cdl = st.columns(2)
+        _dl(cdl[0], "competence_scores.csv", comp_paths.get("competence_scores"))
+        _dl(cdl[1], "competence_summary.csv", comp_paths.get("competence_summary"))
 
 dash_results = st.session_state.get("dash_results")
 if not dash_results:
@@ -1138,13 +1246,6 @@ else:
 
         _section("Files", "Everything this run wrote")
         dl = st.columns(5)
-
-        def _dl(col, label, path, mime="text/csv"):
-            if path and path.exists():
-                col.download_button(label, data=path.read_bytes(), file_name=path.name,
-                                    mime=mime, width="stretch")
-            else:
-                col.caption(f"{label}: n/a")
 
         _dl(dl[0], "summary.json", paths.get("summary_json"), "application/json")
         _dl(dl[1], "item_scores.csv", paths.get("item_scores"))

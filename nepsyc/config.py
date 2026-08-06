@@ -79,12 +79,30 @@ class RunCfg:
 
 
 @dataclass
+class CompetenceCfg:
+    """Config for the Nepali language competence probe (nepsyc/competence.py), a
+    standalone axis reported separately from the six sycophancy behaviours."""
+    enabled: bool = True
+    # Seed CSV; both scripts and all three directions live in one file (see its
+    # `script`/`direction` columns), unlike the per-language sycophancy seeds.
+    probe_set: str = "data/seeds/competence_probes.csv"
+    output_dir: str = "results/competence"
+    # Verdict thresholds. "Understands" requires both chrF++ and BLEU to clear their
+    # minimums; "Partial" requires only chrF++ (the more morphology-robust signal per
+    # CLAUDE.md) to clear its own, lower minimum; anything below that is "Poor".
+    understands_chrfpp_min: float = 50.0
+    understands_bleu_min: float = 25.0
+    partial_chrfpp_min: float = 30.0
+
+
+@dataclass
 class Config:
     run: RunCfg
     generation: GenerationCfg
     judges: JudgeCfg
     target_models: List[ModelSpec]
     providers: Dict[str, Dict[str, Any]]
+    competence: CompetenceCfg
 
     @property
     def root(self) -> Path:
@@ -138,4 +156,5 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         judges=JudgeCfg(**raw.get("judges", {})),
         target_models=models,
         providers=raw.get("providers", {}),
+        competence=CompetenceCfg(**raw.get("competence", {})),
     )

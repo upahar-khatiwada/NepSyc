@@ -9,8 +9,11 @@ across open-weight models served over the Groq API (or any OpenAI-compatible gat
 ships three parallel language splits: English (`en`), Nepali (`ne`, Devanagari), and
 Romanized Nepali (`ne_rom`, Latin-script Nepali as typed by Nepali speakers texting).
 
-There is no test suite, linter, or CI config in this repo. Correctness is checked by running
-the pipeline itself (`--mock` mode) and by reading `results/nepsyc_summary_latest.txt`.
+There is no linter or CI config in this repo, and the sycophancy pipeline itself has no test
+suite — correctness there is checked by running the pipeline (`--mock` mode) and reading
+`results/nepsyc_summary_latest.txt`. The one exception is the language competence probe
+(`nepsyc/competence.py`, see below), which does have `tests/test_competence.py` (stdlib
+`unittest`, no pytest dependency) covering its scoring/threshold logic and a mock end-to-end run.
 
 ## Commands
 
@@ -43,6 +46,11 @@ python run.py evaluate --human data/human_annotations.csv   # adds Krippendorff'
 python scripts/convert_public_datasets.py --n-truthfulqa 200 --n-csqa 200
                                           # scales up the English seed pool from the real
                                           # TruthfulQA/CommonsenseQA (requires `pip install datasets`)
+
+python run.py competence --mock          # Nepali language competence probe (BLEU/chrF++),
+                                          # fully separate from evaluate -- see below
+python run.py competence --target-models Llama-3.1-8B
+python -m unittest tests.test_competence -v   # the one test suite in this repo
 
 streamlit run app/dashboard.py          # dashboard: pick models, run, see charts (needs
                                           # streamlit/plotly/pandas -- in requirements.txt)
@@ -157,10 +165,65 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
   `items`' original relative order rather than regrouping by behaviour. `list_configured_models(cfg)`
   reads `target_models` / `judges` / `providers` out of config with no network call, for populating
   a model-selection UI before a run.
-- `cli.py` — `build` / `check-models` / `evaluate` subcommands; `run.py` is a one-line
-  entrypoint into `nepsyc.cli.main()`. `cmd_evaluate` only parses args into `cfg` (including
-  `--target-models`, which sets `cfg.run.target_model_ids`) and calls `pipeline.run_evaluation`
-  — the pipeline itself lives in `pipeline.py`.
+- `cli.py` — `build` / `check-models` / `evaluate` / `competence` subcommands; `run.py` is a
+  one-line entrypoint into `nepsyc.cli.main()`. `cmd_evaluate` only parses args into `cfg`
+  (including `--target-models`, which sets `cfg.run.target_model_ids`) and calls
+  `pipeline.run_evaluation` — the pipeline itself lives in `pipeline.py`. `cmd_competence`
+  is the same shape, calling `competence.run_competence_sweep`.
+- `competence.py` — the Nepali language competence probe: a standalone axis, never combined
+  with AGS/DAS/RPS/MRS/ATS/AIS. See "Language competence probe" below.
+
+### Language competence probe (`nepsyc/competence.py`)
+
+A model that scores badly on the six sycophancy behaviours in the `ne`/`ne_rom` splits might
+simply not understand Nepali well — that confound is a stated limitation of the benchmark
+proposal. This module measures it directly, as a **standalone axis**: it is never combined
+with AGS/DAS/RPS/MRS/ATS/AIS, has its own probe set, own CSVs, own CLI subcommand
+(`python run.py competence`), and own dashboard section — no changes anywhere to
+`build_dataset.py`, `runner.py`, `pipeline.py`, `data/nepsyc_*.csv`, `raw_responses.csv`, or
+`item_scores.csv`.
+
+```
+data/seeds/competence_probes.csv   (24 hand-authored rows: direction, script, source_text,
+    |                                reference_texts, notes -- one file, not per-language,
+    |                                since `script`/`direction` columns already cover both
+    |                                Nepali scripts and all three probe types)
+    |  load_probe_set()
+    v
+run_competence_sweep(cfg)          -- reuses providers.build_router(), the exact client
+    |                                  evaluate uses (same ResponseCache, same MockProvider
+    |                                  for --mock), never a second client
+    v
+competence_scores.csv              (long: one row per model/item/metric)
+competence_summary.csv             (one row per model per {en_to_ne, ne_to_en, comprehension,
+                                     overall}; `verdict` populated only on the overall row)
+```
+
+`direction` is `en_to_ne` | `ne_to_en` | `comprehension`; `script` is `devanagari` |
+`romanized`. Scoring is sacreBLEU BLEU + chrF++ (`score_reply()`) against
+`reference_texts` (pipe-separated, multiple references supported natively by sacrebleu).
+chrF++ (`sacrebleu.CHRF(word_order=2)`) is the primary signal — character n-grams reward a
+near-miss on Nepali verb morphology that word-level BLEU zeroes out. BLEU's tokenizer is
+chosen per row by `_bleu_tokenize_for(direction, script)`: `intl` when the *reference* text is
+Devanagari (sacreBLEU's default `13a` under-segments it), `13a` otherwise — `ne_to_en` is
+always `13a` since its reference is English regardless of the source's `script`. Each scored
+row carries its own sacreBLEU signature string, computed after scoring (calling
+`get_signature()` before any `sentence_score()` call raises, since sacrebleu needs to see the
+reference count first).
+
+`verdict_for(bleu, chrfpp, comp_cfg)` maps thresholds from `config.yaml`'s `competence:` block
+(`understands_chrfpp_min`, `understands_bleu_min`, `partial_chrfpp_min` — not hardcoded) to
+`Understands` / `Partial` / `Poor`: `Understands` needs *both* metrics to clear their minimums,
+`Partial` needs only chrF++ to clear its own lower minimum. Computed only on the `aggregate()`
+overall row (pooled across all three directions) — the per-direction rows carry no verdict,
+matching the dashboard's "headline badge, breakdown on expand" design. `write_scores()`/
+`load_scores()` are a plain per-row parse (no group-and-merge like `build_dataset.load()`
+needs): every field on a `competence_scores.csv` row is independently meaningful, unlike
+`grading_json`, which is heavy enough to only carry on an item's first row.
+
+`run_competence_sweep(cfg, *, mock=False)` filters target models via
+`pipeline._filter_target_models(cfg)` — same `cfg.run.target_model_ids` convention as
+`evaluate`, imported directly from `pipeline.py` rather than reimplemented.
 
 ### Dashboard (`app/dashboard.py`)
 
@@ -222,6 +285,14 @@ chat bubbles grouped by condition (`main`, `stance_pro`/`stance_con`, `self_opin
 `judge_detail.csv` as rationale cards with the raw grading prompt available in an expander — no
 new files or schema, purely a different read of the same CSVs. Needs `streamlit` / `plotly` /
 `pandas`, listed in `requirements.txt` alongside the CLI's dependencies.
+
+A separate "Language Competence" section (own sidebar button "Run language competence check",
+own `st.session_state["dash_competence"]` key, independent of `dash_results`/`dash_lang_view`)
+runs/reads the probe from "Language competence probe" above: a color-coded verdict badge per
+model (`_competence_badge_html`, reusing the `.ns-gauge` CSS class from the Status gauges) as
+the headline, with a per-model expander showing the BLEU/chrF++ breakdown by direction. It
+renders unconditionally, above the `dash_results` branch, since it has no dependency on whether
+a sycophancy sweep has been run or which language is being viewed.
 
 ### Shared dashboard helpers (`app/dash_common.py`)
 
