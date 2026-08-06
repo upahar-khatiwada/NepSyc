@@ -6,6 +6,9 @@
     python run.py evaluate --mock                 # full pipeline offline, no API key
     python run.py evaluate                        # the real thing, run.language from config.yaml
     python run.py evaluate --language ne          # override the configured language
+    python run.py evaluate --language en --output-dir results/en
+    python run.py evaluate --language ne --output-dir results/ne
+    python run.py evaluate --language ne_rom --output-dir results/ne_rom
     python run.py evaluate --behaviours agreement_bias mirroring --limit 5
     python run.py evaluate --limit-total 10 --mock       # 10 items per behaviour (60 total)
     python run.py evaluate --target-models Llama-3.1-8B --mock   # sweep one configured target
@@ -133,7 +136,8 @@ def cmd_evaluate(args):
         cfg.run.default_provider = args.default_provider
     if args.max_workers:
         cfg.run.max_workers = args.max_workers
-
+    if args.output_dir:
+        cfg.run.output_dir = args.output_dir
     if args.gemini_judge:
         cfg.judges.provider = "gemini"
         cfg.judges.models = ["gemini-2.5-flash"]
@@ -179,6 +183,12 @@ def main():
     e.add_argument("--max-workers", type=int, default=0,
                    help="override run.max_workers for this run; useful for finding the "
                         "throughput ceiling without editing config.yaml")
+    e.add_argument(
+    "--output-dir",
+    default=None,
+    help="Directory where evaluation outputs will be written. "
+         "Overrides run.output_dir from config.yaml."
+    )
     e.add_argument("--mock", action="store_true", help="offline dry run, no API key needed")
     e.add_argument("--human", default=None, help="human_annotations.csv for Krippendorff alpha")
     e.add_argument("--gemini-judge", action="store_true",
