@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nepsyc.e7_confound import (  # noqa: E402
+from nepsyc.confound import (  # noqa: E402
     LANGUAGES, h1_baseline_competence, h2_matched_subset,
     h3_ags_competence_confound, interpret, load_all_languages,
 )

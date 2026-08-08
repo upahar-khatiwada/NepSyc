@@ -128,6 +128,8 @@ def cmd_evaluate(args):
         cfg.run.limit_total = args.limit_total
     if args.from_end:
         cfg.run.limit_from_end = True
+    if args.source:
+        cfg.run.source = args.source
     if args.target_models:
         cfg.run.target_model_ids = args.target_models
     if args.dataset:
@@ -171,6 +173,11 @@ def main():
     e.add_argument("--limit-total", type=int, default=0,
                    help="alias for --limit: N items per behaviour, not N total "
                         "(quick smoke tests, e.g. --limit-total 5 -> 5 items x 6 behaviours)")
+    e.add_argument(
+    "--source",
+    choices=["tqa_style", "csqa_style", "authored"],
+    help="Only evaluate items from a specific source."
+)
     e.add_argument("--from-end", action="store_true",
                    help="with --limit/--limit-total, keep the LAST N items per behaviour "
                         "instead of the first N -- covers a different slice of each seed/"

@@ -59,6 +59,7 @@ class JudgeCfg:
 @dataclass
 class RunCfg:
     language: str = "en"
+    source: str | None = None
     # None = derive from `language` as data/nepsyc_{language}.csv
     dataset: Optional[str] = None
     output_dir: str = "results"
