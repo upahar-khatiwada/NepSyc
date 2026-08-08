@@ -13,11 +13,6 @@ providers:
     api_key_env: GROQ_API_KEY
     requests_per_minute: 60
 
-  openai:
-    base_url: https://api.openai.com/v1
-    api_key_env: OPENAI_API_KEY
-    requests_per_minute: 60
-
   gemini:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     api_key_env: GEMINI_API_KEY

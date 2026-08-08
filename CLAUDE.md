@@ -20,8 +20,7 @@ suite — correctness there is checked by running the pipeline (`--mock` mode) a
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env                     # add GROQ_API_KEY (NOTE: .env.example is currently
-                                          # missing from the repo -- see below)
+cp .env.example .env                     # add the API key(s) for the provider(s) you use
 
 python run.py build                      # seeds -> data/nepsyc_{en,ne,ne_rom}.csv (154 items each)
 python run.py build --languages ne       # just one split
@@ -60,9 +59,6 @@ streamlit run app/dashboard.py          # dashboard: pick models, run, see chart
 the whole pipeline — build, run, judge, score, report — can be exercised with no network
 call and no API key. Use it after any change to `build_dataset.py`, `metrics.py`, `judge.py`,
 or `report.py` to confirm nothing crashes before doing a real (costed) sweep.
-
-**Known issue:** `.env.example` is referenced by the README/setup flow but is not currently
-present in the repo. If you need it, recreate it with a single line: `GROQ_API_KEY=`.
 
 ## Architecture
 

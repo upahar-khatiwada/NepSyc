@@ -362,10 +362,11 @@ roughly 40% of judge calls.
 Judge output is not ground truth. Section 5 of the report is the only evidence for its
 validity. Supply human annotations to get Krippendorff's alpha:
 
-By default judges are open-weight models on Groq. To judge with Gemini instead, uncomment
-the `gemini` block under `providers:` in `config.yaml` (it uses Google's OpenAI-compatible
-endpoint, so the same `OpenAICompatProvider` handles it unchanged), set `GEMINI_API_KEY`,
-and either set `judges.provider: gemini` in `config.yaml` or pass it per run:
+By default judges are open-weight models on Groq. To judge with Gemini instead, set
+`GEMINI_API_KEY` in `.env` (the `gemini` block already ships under `providers:` in
+`config.yaml` -- it uses Google's OpenAI-compatible endpoint, so the same
+`OpenAICompatProvider` handles it unchanged) and either set `judges.provider: gemini` in
+`config.yaml` or pass it per run:
 
 ```bash
 python run.py evaluate --gemini-judge                                   # gemini-2.5-flash
@@ -408,14 +409,16 @@ everything downstream is unchanged.
 **OpenAI and Gemini are first-class providers too**, not just an OpenRouter workaround — both
 expose OpenAI-compatible endpoints (`api.openai.com/v1`, and Google's
 `generativelanguage.googleapis.com/v1beta/openai/`), so the same `OpenAICompatProvider` in
-`providers.py` handles them unchanged; no `openai` or `google-generativeai` SDK involved. Both
-provider blocks already ship in `config.yaml` (`openai`, `gemini`, `groq`, and `ank` under
-`providers:`) along with commented-out example `target_models` entries (`gpt-4o-mini`, `gpt-4o`,
-`gemini-2.5-flash`). To use one as a target model: set `OPENAI_API_KEY` or `GEMINI_API_KEY` in
-`.env` (see `.env.example`) and uncomment the matching entry. To use one as a judge instead, set
-`judges.provider` to that provider and point `judges.models` at that provider's model ids. A
-default sweep with only `ANK_API_KEY` set is unaffected -- nothing above is enabled unless you
-uncomment it.
+`providers.py` handles them unchanged; no `openai` or `google-generativeai` SDK involved.
+`config.yaml` currently ships `ank`, `groq`, `gemini`, and `azure_openai` under `providers:`.
+`gemini` has no `target_models` entry of its own yet -- it's kept configured purely so it can be
+used as a judge (`--gemini-judge`, or `judges.provider: gemini`) without a target model needing
+it first. `openai` is not shipped by default (no `target_models` entry uses it and there's no
+`OPENAI_API_KEY` in this repo's `.env`); to add it back, add a block under `providers:` following
+the `gemini` one as a template, set `OPENAI_API_KEY` in `.env` (see `.env.example`), and either
+add a `target_models` entry with `provider: openai` or point `judges.provider` at it. A default
+sweep with only `ANK_API_KEY` set is unaffected either way -- nothing above is enabled unless you
+add it.
 
 **Azure OpenAI is a provider too, but not an OpenAI-*compatible* one** — it matches the
 request/response JSON body but not the URL shape or auth header, so it does NOT go through
@@ -424,7 +427,7 @@ automatically for any `providers:` block with `api_type: azure`:
 
 ```yaml
 providers:
-  azure:
+  azure_openai:
     base_url: https://<your-resource>.openai.azure.com/
     api_key_env: AZURE_API_KEY
     api_type: azure
@@ -433,13 +436,14 @@ providers:
 target_models:
   - id: <your-deployment-name>       # NOT the model string -- see below
     label: GPT-4o (Azure)
-    provider: azure
+    provider: azure_openai
 ```
 
-Set `AZURE_API_KEY` in `.env` (see `.env.example`) and uncomment/add the `target_models` entry.
-Same as OpenAI/Gemini above: use it as a judge by setting `judges.provider: azure` and pointing
-`judges.models` at the deployment name; it shows up automatically in the dashboard's target and
-judge-model pickers once the `target_models` entry exists — no dashboard code involved.
+Set `AZURE_API_KEY` in `.env` (see `.env.example`) and add/edit the `target_models` entry (this
+repo's `config.yaml` already has one: `gpt-4o-0806` / `GPT-4o`). Same as OpenAI/Gemini above: use
+it as a judge by setting `judges.provider: azure_openai` and pointing `judges.models` at the
+deployment name; it shows up automatically in the dashboard's target and judge-model pickers once
+the `target_models` entry exists — no dashboard code involved.
 
 Three things about Azure specifically, all of which cost real debugging time if skipped:
 

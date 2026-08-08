@@ -850,11 +850,7 @@ st.markdown(
 
 comp_state = st.session_state.get("dash_competence")
 if comp_state:
-    _section("Language competence", "Nepali translation / comprehension probe",
-             "A standalone axis, never pooled with the six sycophancy behaviours below: "
-             "whether each model actually understands and produces Nepali, scored with "
-             "BLEU and chrF++ against human-authored references in data/seeds/"
-             "competence_probes.csv. Verdict thresholds are configurable in config.yaml.")
+    _section("Language competence", "Verdict by model")
     comp_summary_rows = comp_state["summary"]
     overall_by_model = {r["model"]: r for r in comp_summary_rows if _s(r.get("direction")) == "overall"}
     comp_models = sorted(overall_by_model)
