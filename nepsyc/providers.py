@@ -247,6 +247,92 @@ class OpenAICompatProvider:
 
         raise RuntimeError(f"{self.name}/{model}: exhausted retries. last error: {last_err}")
 
+class AzureOpenAIProvider(OpenAICompatProvider):
+    """Provider for Azure OpenAI chat completions."""
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        api_version: str,
+        deployment_name: str,
+        cache: Optional[ResponseCache] = None,
+        rpm: int = 60,
+        timeout: int = 120,
+        max_retries: int = 5,
+        name: str = "azure",
+    ):
+        super().__init__(
+            base_url=base_url,
+            api_key=api_key,
+            cache=cache,
+            rpm=rpm,
+            timeout=timeout,
+            max_retries=max_retries,
+            name=name,
+        )
+        self.api_version = api_version
+        self.deployment_name = deployment_name
+
+    def _post(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        payload = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        url = (
+            f"{self.base_url.rstrip('/')}/openai/deployments/"
+            f"{self.deployment_name}/chat/completions"
+            f"?api-version={self.api_version}"
+        )
+
+        headers = {
+            "Content-Type": "application/json",
+            "api-key": self.api_key,
+        }
+
+        for attempt in range(self.max_retries):
+            try:
+                self.limiter.wait()
+
+                resp = self.session.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.timeout,
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+
+                if resp.status_code in {429, 500, 502, 503, 504}:
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+
+                raise RuntimeError(
+                    f"{self.name}: HTTP {resp.status_code}: {resp.text[:500]}"
+                )
+
+            except requests.RequestException as exc:
+                if attempt == self.max_retries - 1:
+                    raise RuntimeError(
+                        f"{self.name}: request failed after "
+                        f"{self.max_retries} attempts: {exc}"
+                    ) from exc
+
+                time.sleep(2 ** attempt)
+
+        raise RuntimeError(f"{self.name}: request failed")
+
 
 class MockProvider:
     """Offline backend so the full pipeline can be smoke-tested without an API key.
@@ -303,6 +389,23 @@ def build_provider(cfg, provider_name: str, cache: ResponseCache, mock: bool = F
     if mock:
         return MockProvider(cache=None)
     settings = cfg.provider_settings(provider_name)
+    settings = cfg.provider_settings(provider_name)
+
+    if settings.get("api_type") == "azure":
+        return AzureOpenAIProvider(
+            base_url=settings["base_url"],
+            api_key=cfg.api_key(provider_name),
+            api_version=settings["api_version"],
+            deployment_name=settings["deployment_name"],
+            cache=cache,
+            rpm=settings.get(
+                "requests_per_minute",
+                cfg.run.requests_per_minute,
+            ),
+            timeout=settings.get("timeout", 120),
+            max_retries=settings.get("max_retries", 5),
+            name=provider_name,
+        )
     return OpenAICompatProvider(
         base_url=settings["base_url"],
         api_key=cfg.api_key(provider_name),

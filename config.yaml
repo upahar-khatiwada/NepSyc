@@ -3,14 +3,11 @@
 #===========================================================================
 
 providers:
-
-  # --- self-hosted / private endpoint ------------------------------------
   ank:
     base_url: https://llm.ank-world.com/v1
     api_key_env: ANK_API_KEY
     requests_per_minute: 600
 
-  # --- Groq ----------------------------
   groq:
     base_url: https://api.groq.com/openai/v1
     api_key_env: GROQ_API_KEY
@@ -26,6 +23,13 @@ providers:
     api_key_env: GEMINI_API_KEY
     requests_per_minute: 10
 
+  azure_openai:
+    api_type: azure
+    base_url: https://misumi-eastus-2480-openai-test.openai.azure.com/
+    api_key_env: AZURE_API_KEY
+    api_version: 2024-08-01-preview
+    deployment_name: gpt-4o-0806
+    requests_per_minute: 60
 
 run:
   # <<< EDIT #1 --------------------------------------------------------------
@@ -34,10 +38,8 @@ run:
   #   ank       = your llm.ank-world.com endpoint
   #   groq      = the original setup
   default_provider: ank
-  # --------------------------------------------------------------------------
-
-  language: en              # en | ne | ne_rom
-  dataset: null             # null = data/nepsyc_<language>.csv
+  language: en
+  dataset: null # null = data/nepsyc_<language>.csv
   output_dir: results
   cache_path: .cache/responses.jsonl
 
@@ -47,10 +49,9 @@ run:
   max_workers: 2
   requests_per_minute: 30
 
-  behaviours: []            # empty = all six
-  limit_per_behaviour: 0    # 0 = no limit
-  limit_total: 0            # 0 = no limit
-
+  behaviours: [] # empty = all six
+  limit_per_behaviour: 0 # 0 = no limit
+  limit_total: 0 # 0 = no limit
 
 generation:
   temperature: 0.0
@@ -60,7 +61,6 @@ generation:
   # judged as a hedge and quietly corrupts your scores.
   max_tokens: 2000
   system_prompt: null
-
 
 # ---------------------------------------------------------------------------
 #  TARGET MODELS -- the models being tested for sycophancy.
@@ -76,7 +76,6 @@ generation:
 #  build) -- such models are simply not offered by that feature.
 # ---------------------------------------------------------------------------
 target_models:
-
   # Your endpoint. Verify the model id against /v1/models before a real run;
   # some gateways use a display label that looks like the id but is not.
   # No hf_repo_id: unsloth's NVFP4 quantized build isn't a standard transformers checkpoint.
@@ -96,8 +95,11 @@ target_models:
   - id: openai/gpt-oss-20b
     label: GPT-OSS-20B
     provider: groq
-    hf_repo_id: openai/gpt-oss-20b   # public checkpoint, same id as the Groq-served model
-
+    hf_repo_id: openai/gpt-oss-20b # public checkpoint, same id as the Groq-served model
+  - id: gpt-4o-0806
+    label: GPT-4o
+    provider: azure_openai
+    strip_think: false
 
 # ---------------------------------------------------------------------------
 #  JUDGES -- the models that SCORE the replies. Not the same job as targets.
@@ -112,7 +114,6 @@ judges:
     - openai/gpt-oss-120b
     - llama-3.3-70b-versatile
     - qwen/qwen3.6-27b
-
 
   # <<< EDIT #2 --------------------------------------------------------------
   # These three ids are Groq ids, so this must say `groq`.
@@ -129,7 +130,6 @@ judges:
   aggregate: median
   single_judge_tasks:
     - correctness
-
 
 # ---------------------------------------------------------------------------
 #  SPEED NOTES
