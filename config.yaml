@@ -132,6 +132,29 @@ judges:
     - correctness
 
 # ---------------------------------------------------------------------------
+#  LANGUAGE COMPETENCE -- a standalone check of whether each target model actually
+#  understands/produces Nepali, reported separately from the six sycophancy scores
+#  above. Run with `python run.py competence` (or the dashboard's own tab), never
+#  folded into `evaluate`. Writes competence_scores.csv / competence_summary.csv to
+#  competence.output_dir, never into run.output_dir.
+# ---------------------------------------------------------------------------
+competence:
+  enabled: true
+  probe_set: data/seeds/competence_probes.csv
+  output_dir: results/competence
+
+  # Verdict thresholds (0-100 scale for both metrics). "Understands" needs both
+  # chrF++ and BLEU to clear their minimums; "Partial" needs only chrF++ (the more
+  # morphology-robust signal for Nepali, see competence.py) to clear its own, lower
+  # minimum; anything under that is "Poor". Tune these once real sweeps establish
+  # what "good" looks like for your target models -- these are starting points, not
+  # validated cutoffs.
+  understands_chrfpp_min: 50.0
+  understands_bleu_min: 25.0
+  partial_chrfpp_min: 30.0
+
+
+# ---------------------------------------------------------------------------
 #  SPEED NOTES
 #
 #  Effective throughput = min(requests_per_minute / 60, max_workers / latency)

@@ -15,13 +15,15 @@
     python run.py evaluate --gemini-judge                # judge with Gemini instead of the panel
     python run.py evaluate --judge-provider gemini --judge-models gemini-2.5-pro
     python run.py evaluate --human data/human_annotations.jsonl
+    python run.py competence --mock                      # Nepali language competence probe (BLEU/chrF++)
+    python run.py competence --target-models Llama-3.1-8B
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from . import build_dataset
+from . import build_dataset, competence
 from .config import ROOT, load_config
 from .pipeline import run_evaluation
 from .providers import ResponseCache, build_provider
@@ -151,6 +153,26 @@ def cmd_evaluate(args):
     run_evaluation(cfg, mock=args.mock, human_file=args.human)
 
 
+def cmd_competence(args):
+    """Standalone Nepali language competence probe -- see nepsyc/competence.py.
+    Never folded into `evaluate`: it scores translation/comprehension quality against
+    a probe set (competence.probe_set in config.yaml), not sycophancy, and reports a
+    per-model verdict (Understands/Partial/Poor), not AGS/DAS/RPS/MRS/ATS/AIS.
+    """
+    cfg = load_config(args.config)
+    if args.target_models:
+        cfg.run.target_model_ids = args.target_models
+    result = competence.run_competence_sweep(cfg, mock=args.mock)
+    print(f"competence scores  -> {result['paths']['competence_scores']}")
+    print(f"competence summary -> {result['paths']['competence_summary']}")
+    for row in result["summary"]:
+        if row["direction"] != "overall":
+            continue
+        bleu = f"{row['bleu']:.2f}" if row["bleu"] is not None else "n/a"
+        chrfpp = f"{row['chrfpp']:.2f}" if row["chrfpp"] is not None else "n/a"
+        print(f"  {row['model']:<24} n={row['n_items']:<3} BLEU={bleu:<8} chrF++={chrfpp:<8} {row['verdict']}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="nepsyc")
     ap.add_argument("--config", default="config.yaml")
@@ -209,6 +231,12 @@ def main():
                    help="override judges.models from config.yaml, e.g. "
                         "--judge-provider gemini --judge-models gemini-2.5-flash")
     e.set_defaults(func=cmd_evaluate)
+
+    m = sub.add_parser("competence", help="Nepali language competence probe (BLEU/chrF++, separate from evaluate)")
+    m.add_argument("--target-models", nargs="*", default=None,
+                   help="subset of target_models to probe, by id or label; default: all configured targets")
+    m.add_argument("--mock", action="store_true", help="offline dry run, no API key needed")
+    m.set_defaults(func=cmd_competence)
 
     args = ap.parse_args()
     args.func(args)

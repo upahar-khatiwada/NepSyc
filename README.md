@@ -16,6 +16,9 @@ python run.py evaluate --limit-total 10 --mock   # quick smoke test, a handful o
 python run.py evaluate --target-models Llama-3.1-8B   # sweep a subset of target_models, by id or label
 python run.py evaluate --gemini-judge             # judge with Gemini instead of the open-weight panel
 
+python run.py competence --mock                   # Nepali language competence probe (BLEU/chrF++)
+python run.py competence --target-models Llama-3.1-8B
+
 streamlit run app/dashboard.py    # dashboard: pick target/judge models, run, see charts
 ```
 
@@ -36,6 +39,10 @@ An item explorer filters `results/item_scores.csv` and, per item, shows the matc
 from `raw_responses.csv` and judge rationales from `judge_detail.csv`. Download buttons hand back
 `summary.json`, `item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`, and the `.txt` report;
 a **Load last results** button re-renders an existing `results/summary.json` without re-running.
+
+A separate **Language Competence** section (own sidebar button, own "Load last competence
+results" button) runs the Nepali translation/comprehension probe described below — see
+"Language competence probe" for the metrics, thresholds and CSVs it produces.
 
 ```bash
 pip install -r requirements.txt   # streamlit, plotly, pandas ship in here already
@@ -457,6 +464,85 @@ under `providers:` (not just Groq), hits each one's `/v1/models` live, and print
 no key set, network issue, quota — is reported inline (e.g. `openai: could not list models:
 ...`) and skipped, without aborting the providers that do work.
 
+## Language competence probe
+
+A model that scores badly on the six sycophancy behaviours in the `ne`/`ne_rom` splits might
+simply not understand Nepali well — that confound is a stated limitation of the benchmark
+proposal. `nepsyc/competence.py` measures it directly, as a **separate, standalone axis**: it
+is never combined with AGS/DAS/RPS/MRS/ATS/AIS, has its own CSVs, its own CLI subcommand, and
+its own dashboard section.
+
+```bash
+python run.py competence --mock                        # offline dry run, no API key
+python run.py competence                                # real sweep, all configured target_models
+python run.py competence --target-models Llama-3.1-8B   # one model, by id or label
+```
+
+**Probe set** — `data/seeds/competence_probes.csv`, 24 hand-authored rows, one file (not split
+per language, since it already carries both Nepali scripts via its own `script` column):
+
+| column           | meaning                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `seed_id`        | unique id, e.g. `CMP001`                                                                    |
+| `direction`      | `en_to_ne` \| `ne_to_en` \| `comprehension`                                                  |
+| `script`         | `devanagari` \| `romanized` — the Nepali side's script (source for `ne_to_en`/`comprehension`, target for `en_to_ne`) |
+| `source_text`    | the text sent to the model (wrapped in an English instruction — translate this / answer this) |
+| `reference_texts`| pipe-separated list of acceptable translations/answers (sacreBLEU scores against all of them) |
+| `notes`          | free text                                                                                    |
+
+Each of the three directions is covered in both scripts (4 rows each, 24 total): translation
+both ways between English and Nepali, plus short Nepali comprehension questions with reference
+answers. These are hand-authored and should be treated as a starting point, not a
+native-speaker-validated gold set — review before relying on absolute scores, though relative
+comparisons between models are meaningful sooner.
+
+**Scoring** — sacreBLEU BLEU and chrF++ against the reference(s), computed per (model, item):
+
+- **chrF++** (`sacrebleu.CHRF(word_order=2)`) is the primary signal. It scores character
+  n-grams, which rewards a near-miss on Nepali verb morphology (a lot of grammatical meaning
+  packed into affixes) that word-level BLEU would zero out.
+- **BLEU** (`sacrebleu.BLEU(tokenize=..., effective_order=True)`) is kept as a second,
+  word-level check. The tokenizer is chosen per row: `intl` when the *reference* text is
+  Devanagari (sacreBLEU's default `13a` tokenizer is built for whitespace-delimited Latin text
+  and under-segments Devanagari), `13a` when the reference is English or Romanized Nepali. For
+  `ne_to_en` the reference is always English, so it's always `13a` regardless of the source's
+  `script`.
+- Every scored row records its own sacreBLEU **signature** string (e.g.
+  `nrefs:1|case:mixed|eff:yes|tok:intl|smooth:exp|version:2.6.0`) in `competence_scores.csv`, so
+  exactly how a number was computed travels with it.
+
+**Verdict** — thresholds in `config.yaml`'s `competence:` block, not hardcoded:
+
+```yaml
+competence:
+  understands_chrfpp_min: 50.0
+  understands_bleu_min: 25.0
+  partial_chrfpp_min: 30.0
+```
+
+`Understands` requires **both** chrF++ and BLEU to clear their minimums; `Partial` requires
+only chrF++ (the more morphology-robust signal) to clear its own, lower minimum; anything under
+that is `Poor`. Computed only on the "overall" row per model (pooled across all three
+directions) — the shipped thresholds are starting points, not validated cutoffs; tune them once
+a few real sweeps establish what "good" looks like for your target models.
+
+**Output** — `results/competence/` (`competence.output_dir` in `config.yaml`), independent of
+`results/` and never touching `data/nepsyc_*.csv`, `raw_responses.csv`, or `item_scores.csv`:
+
+| file                       | shape                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `competence_scores.csv`    | long format, one row per (model, item, metric) — `nepsyc/competence.py`'s `load_scores()` is the lossless inverse of `write_scores()` |
+| `competence_summary.csv`   | one row per model per `{en_to_ne, ne_to_en, comprehension, overall}`; `verdict` is populated only on the `overall` row |
+
+The dashboard's **Language Competence** section (its own sidebar button, "Run language
+competence check" — independent of the sycophancy sweep controls above it) reads both CSVs
+directly: a color-coded verdict badge per model as the headline, with the BLEU/chrF++ numbers
+and the per-direction breakdown available in an expander underneath.
+
+It reuses the exact same model-API client as the sycophancy pipeline (`providers.build_router`,
+the same `.cache/responses.jsonl`) rather than a second one, and the same mock backend
+(`providers.MockProvider`) for `--mock` / offline testing.
+
 ## Notes
 
 - All responses are cached in `.cache/responses.jsonl` (the one file that stays JSONL — it is
@@ -487,8 +573,12 @@ nepsyc/config.py             typed config
        report.py             the .txt summary
        pipeline.py           run_evaluation() / list_configured_models() -- the evaluate
                               pipeline as an importable function, for non-CLI callers
-       cli.py                build / check-models / evaluate
+       competence.py         Nepali language competence probe (BLEU/chrF++) -- standalone
+                              axis, own CSVs, reuses providers.build_router()
+       cli.py                build / check-models / evaluate / competence
 data/seeds/*_{en,ne,ne_rom}.csv       factual + MCQ seeds        (edit these)
 data/authored/*_{en,ne,ne_rom}.csv    delusion, mirroring, attribution, authority (edit these)
 data/nepsyc_{en,ne,ne_rom}.csv        built items, one row per turn (generated)
+data/seeds/competence_probes.csv      language competence probe set (edit this)
 scripts/convert_public_datasets.py    English-only seed scale-up (TruthfulQA/CommonsenseQA)
+```
