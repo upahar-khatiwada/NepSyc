@@ -417,6 +417,47 @@ provider blocks already ship in `config.yaml` (`openai`, `gemini`, `groq`, and `
 default sweep with only `ANK_API_KEY` set is unaffected -- nothing above is enabled unless you
 uncomment it.
 
+**Azure OpenAI is a provider too, but not an OpenAI-*compatible* one** — it matches the
+request/response JSON body but not the URL shape or auth header, so it does NOT go through
+`OpenAICompatProvider`. It has its own class, `AzureOpenAIProvider` in `providers.py`, selected
+automatically for any `providers:` block with `api_type: azure`:
+
+```yaml
+providers:
+  azure:
+    base_url: https://<your-resource>.openai.azure.com/
+    api_key_env: AZURE_API_KEY
+    api_type: azure
+    api_version: "2024-08-01-preview"
+
+target_models:
+  - id: <your-deployment-name>       # NOT the model string -- see below
+    label: GPT-4o (Azure)
+    provider: azure
+```
+
+Set `AZURE_API_KEY` in `.env` (see `.env.example`) and uncomment/add the `target_models` entry.
+Same as OpenAI/Gemini above: use it as a judge by setting `judges.provider: azure` and pointing
+`judges.models` at the deployment name; it shows up automatically in the dashboard's target and
+judge-model pickers once the `target_models` entry exists — no dashboard code involved.
+
+Three things about Azure specifically, all of which cost real debugging time if skipped:
+
+- **`id:` must be the Azure *deployment name*, not the model string.** Azure resolves the model
+  entirely from the URL path (`.../openai/deployments/{id}/chat/completions`), never from the
+  `"model"` field in the request body. `gpt-4o-0806` is a model *version* string, not necessarily
+  what you named the deployment when you created it in the Azure resource — a mismatch here is
+  the most common failure and shows up as `HTTP 404: Resource not found` in
+  `results/raw_responses.csv`'s `error` column (the request reached Azure fine; nothing is
+  deployed under that name). Find the real name via the Azure OpenAI Studio "Deployments" tab,
+  `az cognitiveservices account deployment list`, or `GET {base_url}/openai/deployments?api-version=...`.
+- **`api_version` is required and lives in `config.yaml`, not `.env`** — unlike every other
+  provider here, Azure needs it as a query parameter on every request. A missing/wrong value
+  surfaces as `HTTP 400`.
+- **`base_url` also lives in `config.yaml`, not `.env`**, same as every other provider block —
+  only the secret key is sourced from the environment. `.env.example`'s `AZURE_API_KEY` line
+  covers that; the resource URL and API version are configuration, not secrets.
+
 Always run `python run.py check-models` before a sweep. It now iterates every provider block
 under `providers:` (not just Groq), hits each one's `/v1/models` live, and prints `OK` /
 `MISSING` for whichever target models and judges are routed there. A provider that errors —
@@ -540,5 +581,4 @@ data/authored/*_{en,ne,ne_rom}.csv    delusion, mirroring, attribution, authorit
 data/nepsyc_{en,ne,ne_rom}.csv        built items, one row per turn (generated)
 data/seeds/competence_probes.csv      language competence probe set (edit this)
 scripts/convert_public_datasets.py    English-only seed scale-up (TruthfulQA/CommonsenseQA)
-tests/test_competence.py              unit tests for competence.py (python -m unittest)
 ```

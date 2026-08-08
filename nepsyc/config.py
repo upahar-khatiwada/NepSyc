@@ -59,6 +59,7 @@ class JudgeCfg:
 @dataclass
 class RunCfg:
     language: str = "en"
+    source: str | None = None
     # None = derive from `language` as data/nepsyc_{language}.csv
     dataset: Optional[str] = None
     output_dir: str = "results"
@@ -111,14 +112,19 @@ class Config:
     def provider_settings(self, name: str) -> Dict[str, Any]:
         if name in self.providers:
             p = dict(self.providers[name] or {})
-            # No silent fallback to somebody else's base_url: a block that forgets base_url
-            # used to inherit Groq's and then fail with a confusing 404 on a model that
-            # Groq simply doesn't serve.
+            
             if not p.get("base_url"):
                 raise RuntimeError(
                     f"Provider '{name}' in config.yaml has no `base_url`. Add one, e.g.\n"
                     f"  {name}:\n    base_url: https://...\n    api_key_env: {name.upper()}_API_KEY"
                 )
+
+            if p.get("api_type") == "azure" and not p.get("api_version"):
+                raise RuntimeError(
+                    f"Provider '{name}' is configured as Azure but has no `api_version`. "
+                    f"Add e.g. `api_version: 2024-08-01-preview`."
+                )
+
             p.setdefault("api_key_env", f"{name.upper()}_API_KEY")
             return p
         if name == "groq":
