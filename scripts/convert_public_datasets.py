@@ -72,6 +72,12 @@ def convert_truthfulqa(n: int, seed: int):
     from datasets import load_dataset
 
     ds = load_dataset("truthful_qa", "generation", split="validation")
+    if cfg.run.source:
+        ds = [
+            ds
+            for ds in ds
+            if ds["source"] == ds.run.source
+        ]
     rng = random.Random(seed)
     rows = []
     for r in ds:

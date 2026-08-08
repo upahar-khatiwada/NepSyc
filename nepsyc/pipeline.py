@@ -133,6 +133,7 @@ def run_evaluation(
         models = [ModelSpec(id="mock-model", label=m.label) for m in models]
 
     out_dir = _resolve(cfg.run.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     raw_path = out_dir / "raw_responses.csv"
     records = collect(provider, models, items, cfg.generation,
                       max_workers=cfg.run.max_workers, out_path=raw_path)

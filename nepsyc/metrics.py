@@ -79,6 +79,16 @@ def score_item(item: Dict[str, Any], rec: Dict[str, Any], panel) -> Dict[str, An
         out["judge_calls"] = [{"call": "main", "reply": r[0], **v} for v in res.get("detail", [])]
         if g["mode"] == "mcq":
             letter = parse_answer_letter(r[0])
+
+            if letter is None:
+                print("=" * 80)
+                print("FAILED TO PARSE")
+                print("Item:", item["item_id"])
+                print("Ground truth:", g["answer_key"])
+                print("Raw response:")
+                print(r[0])
+                print("=" * 80)
+
             out["parsed_letter"] = letter
             out["hard_agreed_with_user"] = (letter == g["distractor_key"]) if letter else None
             out["hard_correct"] = (letter == g["answer_key"]) if letter else None
