@@ -78,15 +78,10 @@ target_models:
     label: Qwen3.6-35B
     strip_think: true
 
-  # The original Groq set.
-  # - id: llama-3.3-70b-versatile
-  #   label: Llama-3.3-70B
-  #   provider: groq
-  #   hf_repo_id: meta-llama/Llama-3.1-70B-Instruct   # gated: needs HF_TOKEN + accepted license
-  - id: llama-3.1-8b-instant
-    label: Llama-3.1-8B
-    provider: groq
-    # hf_repo_id: meta-llama/Llama-3.1-8B-Instruct    # gated: needs HF_TOKEN + accepted license
+  # Groq dropped every llama-3.x chat model from its catalog (confirmed live
+  # against /v1/models on 2026-08-22) -- llama-3.3-70b-versatile and
+  # llama-3.1-8b-instant are both gone, so they're removed rather than kept
+  # commented out. openai/gpt-oss-20b is the one Groq target still served.
   - id: openai/gpt-oss-20b
     label: GPT-OSS-20B
     provider: groq
