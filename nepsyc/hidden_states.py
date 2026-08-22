@@ -29,18 +29,29 @@ class TurnHiddenStates:
     layer_vectors: List[np.ndarray] = field(default_factory=list)
 
 
-def load_model(hf_repo_id: str, device: Optional[str] = None):
+def load_model(hf_repo_id: str, device: Optional[str] = None, attn_implementation: Optional[str] = None):
     """Load a causal LM + tokenizer from the Hub. bfloat16 on CUDA (matches the original
-    prototype), float32 on CPU since not all CPU kernels support bfloat16 matmuls."""
+    prototype), float32 on CPU since not all CPU kernels support bfloat16 matmuls.
+
+    `attn_implementation`: None (default) leaves transformers' own default (typically
+    `sdpa`) in place, matching every existing caller's behaviour unchanged. Pass `"eager"`
+    when a caller needs `output_attentions=True` to actually return weights -- `sdpa` (and
+    `flash_attention_2`) silently return `None` for attentions instead of raising, per
+    transformers' own warning, so this must be set at load time for representation.py's
+    attention capture to work at all."""
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(hf_repo_id)
+    kwargs = {}
+    if attn_implementation:
+        kwargs["attn_implementation"] = attn_implementation
     model = AutoModelForCausalLM.from_pretrained(
         hf_repo_id,
-        torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+        dtype=torch.bfloat16 if device == "cuda" else torch.float32,
         device_map=device,
+        **kwargs,
     )
     model.eval()
     return tokenizer, model, device
