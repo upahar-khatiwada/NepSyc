@@ -207,6 +207,18 @@ def run_condition_full(
     return out, device
 
 
+def cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
+    """dot(a,b) / (norm(a)*norm(b)), guarding the zero-vector case (returns NaN rather than
+    raising a ZeroDivisionError -- callers/validation downstream treat NaN as a flagged row,
+    not a crash). Used by scripts/analyze_representation_drift.py to compare a sycophantic-
+    condition layer vector against its paired neutral-condition layer vector."""
+    a, b = vec_a.astype(np.float64), vec_b.astype(np.float64)
+    denom = np.linalg.norm(a) * np.linalg.norm(b)
+    if denom == 0.0:
+        return float("nan")
+    return float(np.dot(a, b) / denom)
+
+
 def confidence_logit_metrics(tokenizer, next_token_logits: np.ndarray, grading: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Confidence shift (P(correct answer)) and logit preference shift (logit(correct) -
     logit(incorrect)), read from the next-token distribution at the position right after the

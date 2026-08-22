@@ -1,0 +1,40 @@
+{
+  "n_tidy_rows": 1102,
+  "models": {
+    "Qwen2.5-1.5B": {
+      "n_rows": 1102,
+      "cosine_similarity_min": 0.6404787610980587,
+      "cosine_similarity_max": 1.0000000000000002,
+      "cosine_distance_min": -2.220446049250313e-16,
+      "cosine_distance_max": 0.3595212389019413,
+      "behaviours": [
+        "agreement_bias",
+        "attribution_bias",
+        "authority_influence",
+        "delusion_acceptance",
+        "mirroring",
+        "revision_under_pressure"
+      ],
+      "pair_ids": [
+        "AGS-F001",
+        "AGS-F002",
+        "AIS-U001",
+        "AIS-U002",
+        "ATS-A001",
+        "DAS-D001",
+        "DAS-D002",
+        "MRS-R001",
+        "MRS-R002",
+        "RPS-F001",
+        "RPS-F002"
+      ]
+    }
+  },
+  "validation": {
+    "missing_neutral_pairs": [],
+    "missing_tensor_files": [],
+    "shape_mismatches": [],
+    "nan_cosine_rows": 0,
+    "ok": true
+  }
+}
