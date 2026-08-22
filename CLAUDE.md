@@ -53,6 +53,19 @@ python -m unittest tests.test_competence -v   # the one test suite in this repo
 
 streamlit run app/dashboard.py          # dashboard: pick models, run, see charts (needs
                                           # streamlit/plotly/pandas -- in requirements.txt)
+
+# Representation-level analysis (sycophantic vs. neutral hidden states) -- a third standalone
+# axis alongside evaluate/competence, see "Representation-level analysis" below.
+python scripts/build_neutral_pairs.py            # data/nepsyc_* -> data/representation/neutral_*.csv
+python scripts/validate_neutral_pairs.py         # asserts pairing integrity, prints coverage
+python scripts/extract_representations.py --dry-run   # lists model x pair x variant counts, extracts nothing
+python scripts/extract_representations.py --model Qwen2.5-1.5B --limit 2 --attn-layers none
+                                          # only target_models with hf_repo_id set are eligible;
+                                          # writes results/representations/ (gitignored)
+python scripts/analyze_representation_drift.py   # pure reader of results/representations/index.csv;
+                                          # writes data/representation/metrics/{layer_cosine,layer_agg,...}
+python scripts/analyze_representation_research.py     # optional PCA/direction/CKA/RuP-drift/fertility panels
+python scripts/make_representation_report_figures.py  # static PNGs for docs/REPRESENTATION_LEARNING_REPORT.md
 ```
 
 `--mock` uses a deterministic hash-based fake provider (`MockProvider` in `providers.py`) so
@@ -220,6 +233,91 @@ needs): every field on a `competence_scores.csv` row is independently meaningful
 `run_competence_sweep(cfg, *, mock=False)` filters target models via
 `pipeline._filter_target_models(cfg)` — same `cfg.run.target_model_ids` convention as
 `evaluate`, imported directly from `pipeline.py` rather than reimplemented.
+
+### Representation-level analysis (sycophantic vs. neutral hidden states)
+
+A third standalone axis alongside `evaluate`/`competence`: compares a model's internal hidden
+states under an existing sycophancy-framed condition against a matched **neutral** (unframed)
+counterpart, layer by layer, for open-weight models only. Additive throughout — no change to
+`build_dataset.py`, `data/nepsyc_*.csv`, `runner.py`, or `pipeline.py`. Full writeup with actual
+computed numbers: `docs/REPRESENTATION_LEARNING_REPORT.md`; design rationale and what was found
+to already exist vs. missing before this was built: `docs/REPRESENTATION_ANALYSIS_PLAN.md`.
+
+```
+data/nepsyc_{en,ne,ne_rom}.csv (untouched)
+    |  nepsyc/neutral_pairs.py -- one FIXED mechanical rule per behaviour (drop the claim/
+    |  stance/authority cue, never a hand-rewrite): scripts/build_neutral_pairs.py
+    v
+data/representation/neutral_{en,ne,ne_rom}.csv, pairs_manifest.csv   (705 pairs, all 3
+    |                                                                  languages, validated by
+    |                                                                  scripts/validate_neutral_pairs.py:
+    |                                                                  no orphans either direction,
+    |                                                                  behaviour/domain/language match)
+    |  scripts/extract_representations.py -- only target_models with `hf_repo_id` set in
+    |  config.yaml are eligible; nepsyc/neutral_templates.py (a SEPARATE neutral-template set,
+    |  extraction-path-only) supplies the neutral condition's turns
+    v
+results/representations/{<model>/.../tensors.npz, index.csv, runs/<run_id>.json}   (gitignored,
+    |                                                                                like results/)
+    |  scripts/analyze_representation_drift.py -- pure reader, no model load
+    v
+data/representation/metrics/{layer_cosine.csv/.parquet, layer_agg.csv, layer_ranking.csv,
+                              model_layer_matrix_*.csv, summary.json}   (committed)
+    |  scripts/analyze_representation_research.py -- optional, SEPARATE script (never edits
+    |  analyze_representation_drift.py's five files above); five extra panels
+    v
+data/representation/metrics/research_{pca_layers,directions,direction_stability,cka,
+                                        rup_drift,fertility}.csv, research_directions.npz
+```
+
+`nepsyc/representation.py` is the extraction/metric core (kept separate from
+`nepsyc/hidden_states.py`, whose last-token-only, no-attention output shape is a documented
+dependency of `scripts/analyze_hidden_states.py` and the Prompt Inspector's own "Local
+hidden-state analysis" sub-block — changing its return shape there would break both). Two
+pooling conventions, computed at every layer for every turn: `last_token` (final-token hidden
+state from a prompt-only forward pass — the pre-answer state) and `mean_pooled` (mean over the
+generated reply's token positions, from a teacher-forced prompt+reply pass — how the model
+represents its own answer). `cosine_similarity(a, b)` and `linear_cka(X, Y)` (Gram-matrix/HSIC
+form, cheap when hidden_dim exceeds sample count) both return NaN on a degenerate input (zero
+vector; n<2) rather than raising — every downstream table treats NaN as "flagged", not a crash.
+`confidence_logit_metrics()` reads the softmax/logit gap between the correct and incorrect answer
+tokens right after the prompt (mcq: answer-key vs. distractor-key letter; open: first token of
+`correct_answer` vs. `false_claim`/`incorrect_answer`) — `None` for `paired`-mode items
+(mirroring/attribution_bias/authority_influence), which have no single correct answer.
+
+Per-behaviour neutral-turn rule (`nepsyc/neutral_pairs.py`'s docstring is the canonical source):
+drop the confident false claim (`agreement_bias`), keep `pressure`'s own turn 0 verbatim
+(`revision_under_pressure`), drop the `belief` prefix but keep the `ask` (`delusion_acceptance`),
+drop the "I strongly believe" opener (`mirroring`), a new neutral template with no
+self-authorship claim (`attribution_bias` — see below), a new neutral template with no "I think"
+ownership framing and no authority citation (`authority_influence`). **`attribution_bias` is the
+one exception with no separate neutral item at all**: its existing `anonymous` condition already
+carries no self-authorship claim, so it doubles as the neutral proxy
+(`is_neutral_proxy=True` in `results/representations/index.csv`,
+`NO_NEUTRAL_NEEDED` in `nepsyc/neutral_templates.py`) — every downstream reader
+(`analyze_representation_drift.py`, `analyze_representation_research.py`) resolves "which variant
+is neutral for this pair" the same way: the literal `"neutral"` variant if one was extracted,
+else whichever variant is flagged `is_neutral_proxy`.
+
+**As of the last extraction run** (`results/representations/`, gitignored — the numbers below are
+current only until someone re-runs or extends it): 1 model (`Qwen2.5-1.5B-Instruct`, added to
+`config.yaml`'s `target_models` specifically for this, because the originally-planned
+`GPT-OSS-20B` needs ~80GB RAM at this CPU-only build's required float32 and doesn't fit this
+machine's 16GB), English only, 11 item-pairs across all 6 behaviours (`attribution_bias` has
+exactly 1). The 705-pair pool in `data/representation/` (all 3 languages) is ready for a larger
+run whenever more compute or another `hf_repo_id`-bearing model is available; extending coverage
+needs zero code changes, just re-running `extract_representations.py` with a wider
+`--language`/`--model` selection. Real, computed findings (largest-divergence layers, CKA,
+direction stability, fertility correlation) are in `docs/REPRESENTATION_LEARNING_REPORT.md` —
+notably, no model currently has *both* representation data and sycophancy-judge scores, so a
+representation-drift-vs-judge-score relationship is not yet measurable at all (a structural gap,
+not a weak result).
+
+Dashboard section: `app/dashboard.py`'s "Representational learning" block follows the Language
+Competence precedent (own place in the page, pure reader of precomputed files, never triggers
+extraction itself) with a "Research panels (optional)" sub-section reading the five
+`research_*.csv` files independently — each panel's own caption states its `n` so a low-sample
+result is never presented as if it were settled.
 
 ### Dashboard (`app/dashboard.py`)
 
