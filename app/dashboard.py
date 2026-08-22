@@ -821,6 +821,124 @@ def _repr_variant_card(title: str, prompt, reply) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Representational learning -- optional research panels (scripts/
+# analyze_representation_research.py). Five independent, collapsible panels, each a pure
+# reader of its own research_*.csv/.npz -- nothing here re-derives anything scripts/
+# analyze_representation_research.py hasn't already precomputed offline. Every panel is
+# gated behind the same repr_model/repr_pooling picked by the core section's filters above,
+# so switching model/pooling there re-scopes every research panel too.
+# ---------------------------------------------------------------------------
+
+REPR_VARIANT_COLORS = {"sycophantic": CATEGORICAL[0], "neutral": CATEGORICAL[4]}
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_research(name: str) -> pd.DataFrame | None:
+    return _read_csv(REPR_METRICS_DIR / f"research_{name}.csv")
+
+
+def _repr_pca_scatter_fig(sub: pd.DataFrame) -> go.Figure | None:
+    if sub.empty:
+        return None
+    fig = go.Figure()
+    for variant in ("sycophantic", "neutral"):
+        s = sub[sub["variant"] == variant]
+        if s.empty:
+            continue
+        fig.add_scatter(
+            x=s["pca_x"], y=s["pca_y"], mode="markers", name=variant,
+            marker=dict(size=9, color=REPR_VARIANT_COLORS[variant],
+                       line=dict(width=1, color="rgba(255,255,255,0.6)")),
+            text=s["behaviour"] + " · " + s["pair_id"] + " · " + s["condition"] + " t" + s["turn_index"].astype(str),
+            hovertemplate="%{text}<br>PC1 %{x:.3f}  PC2 %{y:.3f}<extra>%{fullData.name}</extra>",
+        )
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=380,
+        xaxis_title="PC1", yaxis_title="PC2", legend=dict(orientation="h", y=-0.16),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    return fig
+
+
+def _repr_line_by_group_fig(sub: pd.DataFrame, group_col: str, y_col: str, y_title: str,
+                            highlight: str | None = None) -> go.Figure | None:
+    """One trace per distinct value of group_col, layer on the x-axis -- shared shape for the
+    direction-norm, CKA, and cross-behaviour-stability charts below. `highlight`, if given
+    (e.g. "__all__"), is drawn thicker/solid while every other trace is drawn thin/dashed, so
+    the one scope with real statistical power doesn't visually disappear next to five
+    low-n behaviour lines."""
+    if sub.empty:
+        return None
+    fig = go.Figure()
+    groups = sorted(sub[group_col].unique(), key=lambda g: (g != highlight, str(g)))
+    for i, g in enumerate(groups):
+        s = sub[sub[group_col] == g].sort_values("layer")
+        is_main = g == highlight
+        fig.add_scatter(
+            x=s["layer"], y=s[y_col], mode="lines+markers", name=str(g).replace("_", " "),
+            line=dict(color=CATEGORICAL[i % len(CATEGORICAL)], width=3 if is_main else 1.5,
+                      dash=None if is_main else "dot"),
+            marker=dict(size=5 if is_main else 3),
+            hovertemplate=f"{g}<br>layer %{{x}}<br>{y_title} %{{y:.4f}}<extra></extra>",
+        )
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=320,
+        xaxis_title="layer (0 = embedding)", yaxis_title=y_title,
+        legend=dict(orientation="h", y=-0.28),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(showgrid=False, dtick=1)
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    return fig
+
+
+def _repr_rup_trajectory_fig(sub: pd.DataFrame) -> go.Figure | None:
+    if sub.empty:
+        return None
+    s = sub.sort_values("turn_index")
+    fig = go.Figure()
+    fig.add_scatter(x=s["turn_index"], y=s["cumulative_drift"], mode="lines+markers",
+                    name="cumulative step drift (turn-to-turn)", line=dict(color=CATEGORICAL[0], width=3))
+    fig.add_scatter(x=s["turn_index"], y=s["cosine_distance_from_neutral"], mode="lines+markers",
+                    name="cosine distance from neutral", line=dict(color=CATEGORICAL[4], width=2, dash="dot"))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=300,
+        xaxis_title="pressure turn", yaxis_title="cosine distance",
+        legend=dict(orientation="h", y=-0.24),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(showgrid=False, dtick=1, tickvals=s["turn_index"], ticktext=[f"turn {t+1}" for t in s["turn_index"]])
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    return fig
+
+
+def _repr_fertility_fig(sub: pd.DataFrame) -> go.Figure | None:
+    if sub.empty:
+        return None
+    s = sub.sort_values("layer")
+    fig = go.Figure()
+    fig.add_scatter(x=s["layer"], y=s["spearman_rho"], mode="lines+markers", name="Spearman ρ",
+                    line=dict(color=CATEGORICAL[0], width=2.5))
+    fig.add_scatter(x=s["layer"], y=s["r_squared"], mode="lines+markers", name="linear R²",
+                    line=dict(color=CATEGORICAL[3], width=2, dash="dash"))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=300,
+        xaxis_title="layer (0 = embedding)", yaxis_title="correlation (fertility vs. cosine distance)",
+        legend=dict(orientation="h", y=-0.24),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(showgrid=False, dtick=1)
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False, range=[-1, 1])
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -1329,6 +1447,199 @@ else:
             last_layer_dist = float(sel_pool.iloc[-1]["cosine_distance"])
             st.markdown(_repr_metric_badges_html(sel_pool.iloc[0].to_dict(), mean_dist, last_layer_dist),
                         unsafe_allow_html=True)
+
+        # --- 5. Optional research panels --------------------------------
+        st.markdown('<div class="ns-eyebrow" style="margin-top:20px;">'
+                    'Research panels (optional)</div>', unsafe_allow_html=True)
+        st.caption(
+            "Five additional, independent panels from scripts/analyze_representation_research.py -- "
+            "each reads its own precomputed research_*.csv, nothing here re-derives anything live. "
+            "Scoped to the model/pooling picked above. Sample sizes are small throughout "
+            f"({repr_model}: {repr_index[repr_index['model_label'] == repr_model]['pair_id'].nunique()} "
+            "item-pair(s) total) -- every panel's caption states its own n and how to read it."
+        )
+
+        pca_research = _load_repr_research("pca_layers")
+        direction_research = _load_repr_research("directions")
+        stability_research = _load_repr_research("direction_stability")
+        cka_research = _load_repr_research("cka")
+        rup_research = _load_repr_research("rup_drift")
+        fertility_research = _load_repr_research("fertility")
+        research_missing = all(
+            d is None or d.empty for d in
+            (pca_research, direction_research, cka_research, rup_research, fertility_research)
+        )
+        if research_missing:
+            st.caption(
+                "No research-panel data yet. From a terminal: "
+                "python scripts/analyze_representation_research.py   "
+                "(reuses results/representations/ and data/representation/metrics/layer_cosine.csv, "
+                "no model weights loaded except a lightweight tokenizer for the fertility panel)."
+            )
+        else:
+            with st.expander("PCA projection at a chosen layer, coloured by variant", expanded=False):
+                st.caption(
+                    "2D PCA fit independently at each layer over every point available at that "
+                    "layer for this model/pooling: one point per sycophantic condition/turn, plus "
+                    "one neutral point per item (deduplicated across the conditions that share it). "
+                    "This is a per-layer fit, not a shared cross-layer basis, matching the Prompt "
+                    "Inspector's own per-turn PCA convention -- PC1/PC2 at layer 5 are not the same "
+                    "axes as at layer 20. Caveat: fit over roughly 20-40 points depending on layer; "
+                    "a 2D projection with this few points shows gross separation at best, not fine "
+                    "cluster structure. Layer 0 (the raw embedding of the fixed chat-template "
+                    "suffix token) is expected to collapse to a single point -- the model hasn't "
+                    "seen the actual prompt content yet at that position."
+                )
+                pf = pca_research[
+                    (pca_research["model"] == repr_model) & (pca_research["pooling"] == repr_pooling)
+                ] if pca_research is not None else pd.DataFrame()
+                if pf.empty:
+                    st.caption("No PCA fit for this model/pooling.")
+                else:
+                    pca_layer_options = sorted(pf["layer"].unique())
+                    pca_layer = st.select_slider("Layer", options=pca_layer_options,
+                                                 value=pca_layer_options[len(pca_layer_options) // 2],
+                                                 key="repr_pca_layer")
+                    layer_sub = pf[pf["layer"] == pca_layer]
+                    fig = _repr_pca_scatter_fig(layer_sub)
+                    if fig is not None:
+                        evr = layer_sub.iloc[0]
+                        st.caption(f"n={int(evr['n_points'])} points · explained variance "
+                                  f"PC1={evr['explained_variance_ratio_1']:.1%} "
+                                  f"PC2={evr['explained_variance_ratio_2']:.1%}")
+                        st.plotly_chart(fig, width="stretch", key="repr_pca_fig")
+
+            with st.expander("Sycophancy direction (difference-in-means): norm + cross-behaviour stability",
+                             expanded=False):
+                st.caption(
+                    "DIRECTION = mean, over matched item/condition/turn pairs, of "
+                    "(sycophantic-condition vector − neutral vector) -- the same paired "
+                    "difference-of-means construction representation-engineering steering vectors "
+                    "use (e.g. contrastive activation addition). This is a DERIVED DIRECTION, not a "
+                    "trained probe weight -- no classifier was fit, only an average taken. Solid "
+                    "line is __all__ (every behaviour pooled); dotted lines are individual "
+                    "behaviours. Caveat: attribution_bias contributes only 1 item-pair, so its line "
+                    "(and any cross-behaviour cosine involving it) is one item's own difference, not "
+                    "a behaviour-general estimate -- read the norm chart's per-behaviour lines as "
+                    "illustrative, and lean on __all__ for anything resembling a claim."
+                )
+                df_ = direction_research[
+                    (direction_research["model"] == repr_model) & (direction_research["pooling"] == repr_pooling)
+                ] if direction_research is not None else pd.DataFrame()
+                fig = _repr_line_by_group_fig(df_, "behaviour", "direction_norm",
+                                              "‖direction‖", highlight="__all__")
+                if fig is not None:
+                    st.plotly_chart(fig, width="stretch", key="repr_direction_fig")
+                else:
+                    st.caption("No direction data for this model/pooling.")
+
+                st.markdown('<div class="ns-eyebrow" style="margin-top:10px;">'
+                            'Cross-behaviour cosine stability</div>', unsafe_allow_html=True)
+                sf = stability_research[
+                    (stability_research["model"] == repr_model) & (stability_research["pooling"] == repr_pooling)
+                ] if stability_research is not None else pd.DataFrame()
+                if sf.empty:
+                    st.caption("Fewer than two behaviours have a direction at this model/pooling.")
+                else:
+                    sf = sf.copy()
+                    sf["pair_label"] = sf["behaviour_a"].str.replace("_", " ") + " × " + sf["behaviour_b"].str.replace("_", " ")
+                    mean_stability = sf.groupby("layer", as_index=False)["cosine"].mean().rename(columns={"cosine": "mean_cosine"})
+                    fig2 = go.Figure()
+                    fig2.add_scatter(x=mean_stability["layer"], y=mean_stability["mean_cosine"],
+                                     mode="lines+markers", name="mean pairwise cosine",
+                                     line=dict(color=CATEGORICAL[0], width=3))
+                    fig2.update_layout(
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        margin=dict(l=8, r=8, t=8, b=8), height=260,
+                        xaxis_title="layer (0 = embedding)", yaxis_title="mean cosine between behaviour directions",
+                        font=dict(family="IBM Plex Mono, monospace", size=11),
+                    )
+                    fig2.update_xaxes(showgrid=False, dtick=1)
+                    fig2.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False, range=[-1, 1])
+                    st.plotly_chart(fig2, width="stretch", key="repr_stability_fig")
+                    st.caption(
+                        "Averaged across every behaviour-pair at that layer -- high mean cosine means "
+                        "different behaviours' sycophancy directions point the same way (one shared "
+                        "'sycophancy axis'); low/negative means they diverge. Most behaviour-pairs "
+                        "here are flagged low_n (fewer than 3 matched pairs on at least one side, "
+                        "the same MIN_CKA_N threshold scripts/analyze_representation_research.py "
+                        "uses) -- treat this curve's shape as suggestive, not confirmed."
+                    )
+
+            with st.expander("Linear CKA per layer: sycophantic vs. neutral", expanded=False):
+                st.caption(
+                    "Linear Centered Kernel Alignment (Kornblith et al. 2019) between the "
+                    "sycophantic-side and neutral-side representation matrices at each layer, via "
+                    "the Gram-matrix/HSIC formulation. 1.0 = the two conditions' representation "
+                    "geometries are identical up to rotation/scale; 0 = unrelated. Solid line is "
+                    "__all__ (every matched pair pooled, the only scope with real n); dotted lines "
+                    "are individual behaviours, shown only where that behaviour has at least "
+                    "3 matched pairs at that layer -- fewer than that isn't computed at all, not "
+                    "silently rounded. Caveat: even __all__'s n (roughly 15-20 pairs) is a sketch, "
+                    "not a converged CKA estimate; read differences between layers as directional, "
+                    "not precise. NaN at layer 0 is expected (see the PCA panel's note on the "
+                    "embedding layer collapsing to a single point)."
+                )
+                cf = cka_research[
+                    (cka_research["model"] == repr_model) & (cka_research["pooling"] == repr_pooling)
+                ] if cka_research is not None else pd.DataFrame()
+                fig = _repr_line_by_group_fig(cf, "scope", "cka", "linear CKA", highlight="__all__")
+                if fig is not None:
+                    st.plotly_chart(fig, width="stretch", key="repr_cka_fig")
+                else:
+                    st.caption("No CKA data for this model/pooling.")
+
+            with st.expander("Revision-under-pressure: drift trajectory across turns", expanded=False):
+                st.caption(
+                    "revision_under_pressure only. Two curves per pressure item: (1) cumulative "
+                    "step drift -- the running sum of turn-to-turn cosine distance between the "
+                    "pressure condition's OWN hidden states (turn 1 vs. turn 0, turn 2 vs. turn 1), "
+                    "independent of the neutral anchor -- total path length the internal state has "
+                    "travelled by that turn; (2) cosine distance from neutral at each turn, reusing "
+                    "the core section's own already-computed metric for context. A widening gap "
+                    "between the two suggests the state is moving in a direction that keeps taking "
+                    "it further from its neutral starting point rather than wandering back toward "
+                    "it. Caveat: only 2 revision_under_pressure item-pairs exist -- read each "
+                    "trajectory as one item's own path, not a population trend."
+                )
+                rf = rup_research[
+                    (rup_research["model"] == repr_model) & (rup_research["pooling"] == repr_pooling)
+                ] if rup_research is not None else pd.DataFrame()
+                if rf.empty:
+                    st.caption("No revision_under_pressure drift data for this model/pooling.")
+                else:
+                    rup_pairs = sorted(rf["pair_id"].unique())
+                    rup_pair = st.selectbox("Item pair", rup_pairs, key="repr_rup_pair")
+                    rup_layers = sorted(rf[rf["pair_id"] == rup_pair]["layer"].unique())
+                    rup_layer = st.select_slider("Layer", options=rup_layers,
+                                                 value=rup_layers[len(rup_layers) // 2], key="repr_rup_layer")
+                    trajectory_sub = rf[(rf["pair_id"] == rup_pair) & (rf["layer"] == rup_layer)]
+                    fig = _repr_rup_trajectory_fig(trajectory_sub)
+                    if fig is not None:
+                        st.plotly_chart(fig, width="stretch", key="repr_rup_fig")
+
+            with st.expander("Tokenizer fertility vs. per-layer drift", expanded=False):
+                st.caption(
+                    "Spearman ρ and linear R² between each prompt's tokenizer fertility (tokens per "
+                    "whitespace word -- higher means the tokenizer fragments this text into more "
+                    "subword pieces) and its cosine distance from the neutral twin, correlated "
+                    "across every matched item/condition/turn available at that layer. Fertility "
+                    "itself doesn't depend on layer; what varies is whether a heavily-fragmented "
+                    "prompt's representation tends to drift further at some layers than others. "
+                    "Caveat: only 1 model has been extracted so far, so 'per model' is n=1 model "
+                    "today -- no cross-model pattern can be read yet. Within that model, n is "
+                    "roughly 20-40 points per layer; a ρ around 0.3-0.5 with p > 0.05 (common in "
+                    "this data) should be read as a weak, not-yet-significant trend, not a finding."
+                )
+                ff = fertility_research[
+                    fertility_research["model"] == repr_model
+                ] if fertility_research is not None else pd.DataFrame()
+                ff = ff[ff["pooling"] == repr_pooling] if not ff.empty else ff
+                fig = _repr_fertility_fig(ff)
+                if fig is not None:
+                    st.plotly_chart(fig, width="stretch", key="repr_fertility_fig")
+                else:
+                    st.caption("No fertility-correlation data for this model/pooling.")
 
 dash_results = st.session_state.get("dash_results")
 if not dash_results:

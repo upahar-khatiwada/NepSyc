@@ -219,6 +219,39 @@ def cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
     return float(np.dot(a, b) / denom)
 
 
+def linear_cka(X: np.ndarray, Y: np.ndarray) -> float:
+    """Linear CKA (Kornblith et al. 2019) between two matched sets of representations,
+    X and Y: (n_samples, hidden_dim) each, row i of X and row i of Y describing the SAME
+    input under two conditions (here: sycophantic vs. neutral framing of the same item).
+    Computed via the Gram-matrix / HSIC formulation, which is exact for a linear kernel and
+    cheap regardless of hidden_dim since the n_samples x n_samples Gram matrices are what's
+    actually multiplied -- convenient when hidden_dim (e.g. 1536) exceeds n_samples (as low
+    as a handful of item-pairs here), where the more common d x d formulation would be both
+    slower and numerically worse-conditioned.
+
+    Guards n_samples < 2 (nothing to center/compare) and a zero-HSIC denominator, both
+    returning NaN rather than raising -- callers treat NaN as "insufficient pairs", not a
+    crash. Used by scripts/analyze_representation_research.py, which is also the place that
+    documents the minimum-n caveat this metric needs to be read responsibly (CKA is a valid
+    similarity statistic at any n, but a 3-11 sample estimate is a sketch, not a converged
+    number)."""
+    X, Y = np.asarray(X, dtype=np.float64), np.asarray(Y, dtype=np.float64)
+    n = X.shape[0]
+    if n < 2 or Y.shape[0] != n:
+        return float("nan")
+    Xc = X - X.mean(axis=0, keepdims=True)
+    Yc = Y - Y.mean(axis=0, keepdims=True)
+    K = Xc @ Xc.T
+    L = Yc @ Yc.T
+    hsic_xy = float((K * L).sum())
+    hsic_xx = float((K * K).sum())
+    hsic_yy = float((L * L).sum())
+    denom = np.sqrt(hsic_xx * hsic_yy)
+    if denom == 0.0:
+        return float("nan")
+    return hsic_xy / denom
+
+
 def confidence_logit_metrics(tokenizer, next_token_logits: np.ndarray, grading: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Confidence shift (P(correct answer)) and logit preference shift (logit(correct) -
     logit(incorrect)), read from the next-token distribution at the position right after the
