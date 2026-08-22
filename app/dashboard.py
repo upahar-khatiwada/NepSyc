@@ -612,6 +612,215 @@ def _hs_heatmap_fig(df: pd.DataFrame, condition: str, turn_index: int):
 
 
 # ---------------------------------------------------------------------------
+# Representational learning (nepsyc/representation.py, scripts/extract_representations.py,
+# scripts/analyze_representation_drift.py) -- per-layer hidden-state comparison between each
+# item's sycophancy-framed condition and its neutral counterpart, open-weight models only
+# (target_models with hf_repo_id set in config.yaml). A third standalone axis alongside
+# Language Competence and the Prompt Inspector's own "Local hidden-state analysis" sub-block:
+# extraction and metric-aggregation both run offline (the extraction script loads real
+# multi-GB model weights; the drift script is a pure numpy/pandas reader of its output), so
+# this section only ever reads data/representation/metrics/ and results/representations/
+# already on disk -- nothing here loads a model or triggers a run.
+# ---------------------------------------------------------------------------
+
+REPR_METRICS_DIR = ROOT / "data" / "representation" / "metrics"
+REPR_RESULTS_DIR = ROOT / "results" / "representations"
+REPR_POOLINGS = ["last_token", "mean_pooled"]
+REPR_POOLING_LABELS = {"last_token": "Last token (pre-answer state)", "mean_pooled": "Mean-pooled (own reply)"}
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_tidy() -> pd.DataFrame | None:
+    return _read_csv(REPR_METRICS_DIR / "layer_cosine.csv")
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_layer_agg() -> pd.DataFrame | None:
+    return _read_csv(REPR_METRICS_DIR / "layer_agg.csv")
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_index() -> pd.DataFrame | None:
+    return _read_csv(REPR_RESULTS_DIR / "index.csv")
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_item_scores(language: str) -> pd.DataFrame | None:
+    """Sycophancy-sweep item_scores.csv for this language, if one has been run -- checked
+    under both the multi-language (results/<lang>/) and single-language (results/) layouts,
+    same precedence the rest of the dashboard uses. Representation extraction and the main
+    sycophancy sweep are run independently, so this can legitimately come back empty."""
+    for p in (ROOT / "results" / language / "item_scores.csv", ROOT / "results" / "item_scores.csv"):
+        df = _read_csv(p)
+        if df is not None:
+            return df
+    return None
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_meta(meta_path: str) -> dict | None:
+    p = ROOT / meta_path
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def _load_repr_tensors(tensors_path: str) -> dict[str, np.ndarray] | None:
+    """Loads exactly one pair/variant's tensors.npz -- a few KB, not the whole extraction
+    store -- only for whatever the filters below currently have selected."""
+    p = ROOT / tensors_path
+    if not p.exists():
+        return None
+    with np.load(p) as npz:
+        return {k: npz[k] for k in npz.files}
+
+
+def _repr_layer_line_fig(sub: pd.DataFrame, y_col: str, y_title: str) -> go.Figure | None:
+    """One trace per pooling variant, layer on the x-axis -- the primary "how similar is this
+    prompt pair's representation, layer by layer" chart."""
+    fig = go.Figure()
+    plotted = False
+    for i, pooling in enumerate(REPR_POOLINGS):
+        s = sub[sub["pooling"] == pooling].sort_values("layer")
+        if s.empty:
+            continue
+        plotted = True
+        fig.add_scatter(
+            x=s["layer"], y=s[y_col], mode="lines+markers", name=REPR_POOLING_LABELS[pooling],
+            line=dict(color=CATEGORICAL[i * 3 % len(CATEGORICAL)], width=2), marker=dict(size=6),
+            hovertemplate=f"{pooling}<br>layer %{{x}}<br>{y_title} %{{y:.4f}}<extra></extra>",
+        )
+    if not plotted:
+        return None
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=300,
+        xaxis_title="layer (0 = embedding)", yaxis_title=y_title,
+        legend=dict(orientation="h", y=-0.22),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(showgrid=False, dtick=1)
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    return fig
+
+
+def _repr_model_layer_heatmap(agg: pd.DataFrame) -> go.Figure | None:
+    """Model x layer heatmap of mean cosine distance, already scoped to the caller's current
+    behaviour/domain/language/pooling filter -- shows exactly the filtered set, not the
+    unfiltered global average model_layer_matrix_*.csv on disk carries."""
+    if agg.empty:
+        return None
+    pivot = (agg.pivot_table(index="model", columns="layer", values="mean_cosine_distance", aggfunc="mean")
+             .sort_index(axis=1))
+    fig = go.Figure(go.Heatmap(
+        z=pivot.values, x=pivot.columns, y=pivot.index, colorscale="Blues",
+        colorbar=dict(title="mean cos. dist.", thickness=12),
+        hovertemplate="model %{y}<br>layer %{x}<br>mean cosine distance %{z:.4f}<extra></extra>",
+    ))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=max(160, 56 * len(pivot.index) + 70),
+        xaxis_title="layer", font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    # Plotly heatmaps plot y[0] at the bottom by default -- reverse so the first row (here,
+    # alphabetically first model) reads at the top, top-to-bottom like every other list here.
+    fig.update_yaxes(autorange="reversed")
+    return fig
+
+
+def _repr_all_prompts_heatmap(sub: pd.DataFrame) -> go.Figure | None:
+    """pair(y) x layer(x) heatmap of every prompt this model has a representation run for,
+    ordered behaviour -> domain -> language -> pair_id -> condition -> turn -- the "every
+    prompt's layer profile at once" survey view, independent of the behaviour/domain/language
+    filters that scope the panels above/below it."""
+    if sub.empty:
+        return None
+    sub = sub.copy()
+    sub["row_label"] = (
+        sub["behaviour"].str.replace("_", " ") + " · " + sub["domain"] + " · " + sub["language"]
+        + " · " + sub["pair_id"] + " · " + sub["condition"] + " t" + sub["turn_index"].astype(str)
+    )
+    order_cols = ["behaviour", "domain", "language", "pair_id", "condition", "turn_index"]
+    row_order = (sub[["row_label"] + order_cols].drop_duplicates()
+                 .sort_values(order_cols, kind="stable")["row_label"].tolist())
+    pivot = sub.pivot_table(index="row_label", columns="layer", values="cosine_distance", aggfunc="mean")
+    pivot = pivot.reindex(row_order).sort_index(axis=1)
+    fig = go.Figure(go.Heatmap(
+        z=pivot.values, x=pivot.columns, y=pivot.index, colorscale="Blues",
+        colorbar=dict(title="cos. dist.", thickness=12),
+        hovertemplate="%{y}<br>layer %{x}<br>cosine distance %{z:.4f}<extra></extra>",
+    ))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=min(1400, max(240, 20 * len(pivot.index) + 80)),
+        xaxis_title="layer", font=dict(family="IBM Plex Mono, monospace", size=10),
+    )
+    # Plotly heatmaps plot y[0] at the bottom by default -- reverse so row_order (behaviour ->
+    # domain -> language -> pair_id -> condition -> turn) reads top-to-bottom as intended.
+    fig.update_yaxes(autorange="reversed")
+    return fig
+
+
+def _repr_norm_fig(layers: list, syco_norms: list, neutral_norms: list) -> go.Figure:
+    """Per-layer activation-norm bars, sycophantic vs. neutral variant of the same prompt --
+    activations/hidden states from a live forward pass, not the model's static weights."""
+    fig = go.Figure()
+    fig.add_bar(x=layers, y=syco_norms, name="sycophantic variant", marker_color=CATEGORICAL[0])
+    fig.add_bar(x=layers, y=neutral_norms, name="neutral variant", marker_color=CATEGORICAL[4])
+    fig.update_layout(
+        barmode="group", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=8, r=8, t=8, b=8), height=300,
+        xaxis_title="layer (0 = embedding)", yaxis_title="activation L2 norm",
+        legend=dict(orientation="h", y=-0.22),
+        font=dict(family="IBM Plex Mono, monospace", size=11),
+    )
+    fig.update_xaxes(showgrid=False, dtick=1)
+    fig.update_yaxes(gridcolor="rgba(128,138,150,0.22)", zeroline=False)
+    return fig
+
+
+def _repr_activation_norms(tensors: dict, turn_index: int, pooling: str, n_layers: int) -> list:
+    norms = []
+    for layer in range(n_layers):
+        vec = tensors.get(f"t{turn_index}_L{layer}_{pooling}")
+        norms.append(float(np.linalg.norm(vec.astype(np.float64))) if vec is not None else None)
+    return norms
+
+
+def _repr_metric_badges_html(row: dict, mean_dist, last_layer_dist) -> str:
+    chips = []
+    for label, val, signed in (
+        ("mean cosine distance", mean_dist, False),
+        ("cosine distance, last layer", last_layer_dist, False),
+        ("confidence shift (P correct)", row.get("confidence_shift"), True),
+        ("logit-preference shift Δ", row.get("logit_preference_shift_delta"), True),
+    ):
+        if val is None or (isinstance(val, float) and val != val):
+            continue
+        chips.append(f'<div class="ns-badge"><span class="ns-badge-k">{html.escape(label)}</span>'
+                     f'{html.escape(_fmt(val, 4, signed=signed))}</div>')
+    return f'<div class="ns-badgerow">{"".join(chips)}</div>' if chips else ""
+
+
+def _repr_variant_card(title: str, prompt, reply) -> str:
+    prompt_html = html.escape(prompt or "")
+    reply_html = html.escape(reply or "")
+    return (
+        f'<div class="ns-condlabel">{html.escape(title)}</div>'
+        f'<div class="ns-chat">'
+        f'<div class="ns-bubble ns-user"><div class="ns-role">Prompt</div>'
+        f'<div class="ns-text">{prompt_html}</div></div>'
+        f'<div class="ns-bubble ns-assistant"><div class="ns-role">Model reply</div>'
+        f'<div class="ns-text">{reply_html}</div></div>'
+        f'</div>'
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -719,6 +928,16 @@ competence_load_clicked = st.sidebar.button(
     "Load last competence results", disabled=not existing_competence_summary.exists(), width="stretch",
     help=("Render the last competence_summary.csv from disk without re-running."
           if existing_competence_summary.exists() else "No competence_summary.csv yet. Run a check first."),
+)
+
+st.sidebar.divider()
+st.sidebar.markdown('<div class="ns-eyebrow">Representational learning</div>', unsafe_allow_html=True)
+st.sidebar.caption(
+    "Per-layer hidden-state comparison (sycophantic vs. neutral prompt), open-weight models "
+    "only. Pure reader of data/representation/metrics/ and results/representations/ -- "
+    "generate them offline first, this dashboard never loads model weights itself: "
+    "`python scripts/extract_representations.py --model <label> --limit 2` then "
+    "`python scripts/analyze_representation_drift.py`."
 )
 
 # ---------------------------------------------------------------------------
@@ -873,6 +1092,243 @@ if comp_state:
         cdl = st.columns(2)
         _dl(cdl[0], "competence_scores.csv", comp_paths.get("competence_scores"))
         _dl(cdl[1], "competence_summary.csv", comp_paths.get("competence_summary"))
+
+# ---------------------------------------------------------------------------
+# Representational learning -- own section, renders unconditionally like Language
+# Competence above, independent of dash_results/dash_lang_view. A pure reader of whatever
+# scripts/extract_representations.py + scripts/analyze_representation_drift.py have already
+# written to disk; no run button here since extraction loads real model weights and can take
+# minutes on CPU (same reason the Prompt Inspector's hidden-state sub-block has no button).
+# ---------------------------------------------------------------------------
+
+_section(
+    "Representational learning", "Sycophantic vs. neutral hidden states, layer by layer",
+    "Open-weight models only (target_models with hf_repo_id set in config.yaml). Reads "
+    "precomputed cosine-similarity metrics and per-turn tensors/replies already written by "
+    "scripts/extract_representations.py and scripts/analyze_representation_drift.py -- "
+    "nothing here re-extracts or loads model weights.",
+)
+
+repr_open_labels = [t.label for t in cfg.target_models if t.hf_repo_id]
+repr_tidy = _load_repr_tidy()
+repr_agg = _load_repr_layer_agg()
+repr_index = _load_repr_index()
+
+if repr_tidy is None or repr_tidy.empty or repr_index is None or repr_index.empty:
+    st.caption(
+        "No representation-drift metrics yet. From a terminal: "
+        "python scripts/extract_representations.py --model <label> --behaviour <behaviour> "
+        "--limit 2   (writes results/representations/), then "
+        "python scripts/analyze_representation_drift.py   (writes data/representation/metrics/)."
+    )
+    if repr_open_labels:
+        st.caption("Eligible (hf_repo_id set in config.yaml): " + ", ".join(repr_open_labels))
+    else:
+        st.caption("No target_models in config.yaml have hf_repo_id set yet -- nothing is eligible.")
+else:
+    if repr_open_labels:
+        repr_tidy = repr_tidy[repr_tidy["model"].isin(repr_open_labels)]
+        repr_index = repr_index[repr_index["model_label"].isin(repr_open_labels)]
+    if repr_tidy.empty:
+        st.caption("The models in data/representation/metrics/ don't match any current "
+                  "open-weight target_models -- config.yaml may have changed since extraction.")
+    else:
+        st.markdown('<div class="ns-eyebrow" style="margin-top:6px;">Filters</div>', unsafe_allow_html=True)
+        rf1, rf2, rf3, rf4 = st.columns(4)
+        with rf1:
+            repr_model = st.selectbox("Model", sorted(repr_tidy["model"].unique()), key="repr_model")
+        model_sub = repr_tidy[repr_tidy["model"] == repr_model]
+        with rf2:
+            repr_behaviour = st.selectbox(
+                "Behaviour", sorted(model_sub["behaviour"].unique()),
+                format_func=lambda b: b.replace("_", " ").title(), key="repr_behaviour",
+            )
+        behaviour_sub = model_sub[model_sub["behaviour"] == repr_behaviour]
+        with rf3:
+            repr_domain = st.selectbox("Domain", sorted(behaviour_sub["domain"].unique()), key="repr_domain")
+        domain_sub = behaviour_sub[behaviour_sub["domain"] == repr_domain]
+        with rf4:
+            repr_language = st.selectbox(
+                "Language", sorted(domain_sub["language"].unique()),
+                format_func=lambda l: LANGUAGE_LABELS.get(l, l), key="repr_language",
+            )
+        language_sub = domain_sub[domain_sub["language"] == repr_language]
+
+        pair_options = sorted(language_sub["pair_id"].unique())
+        rf5, rf6, rf7, rf8 = st.columns(4)
+        with rf5:
+            repr_pair = st.selectbox("Prompt pair", pair_options, key="repr_pair")
+        pair_sub = language_sub[language_sub["pair_id"] == repr_pair]
+        cond_options = sorted(pair_sub["condition"].unique())
+        with rf6:
+            repr_condition = st.selectbox(
+                "Condition (sycophantic side)", cond_options,
+                format_func=lambda c: COND_LABELS.get(c, c.replace("_", " ").title()), key="repr_condition",
+            )
+        cond_sub = pair_sub[pair_sub["condition"] == repr_condition]
+        turn_options = sorted(cond_sub["turn_index"].unique())
+        with rf7:
+            repr_turn = (st.selectbox("Turn", turn_options, format_func=lambda t: f"Turn {t + 1}",
+                                      key="repr_turn") if len(turn_options) > 1 else turn_options[0])
+        with rf8:
+            repr_pooling = st.radio(
+                "Pooling", REPR_POOLINGS, format_func=lambda p: REPR_POOLING_LABELS[p],
+                horizontal=True, key="repr_pooling",
+            )
+
+        sel = cond_sub[cond_sub["turn_index"] == repr_turn]
+        sel_pool = sel[sel["pooling"] == repr_pooling].sort_values("layer")
+
+        # --- 2. Cosine-similarity graphs ------------------------------------
+        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                    'Per-layer cosine similarity — selected pair</div>', unsafe_allow_html=True)
+        line_fig = _repr_layer_line_fig(sel, "cosine_similarity", "cosine similarity")
+        if line_fig is not None:
+            st.plotly_chart(line_fig, width="stretch", key="repr_line_fig")
+        else:
+            st.caption("No cosine data for this exact pair/condition/turn.")
+
+        st.markdown(
+            '<div class="ns-eyebrow" style="margin-top:16px;">'
+            f'Model × layer heatmap — {repr_behaviour.replace("_", " ")} · {repr_domain} · '
+            f'{LANGUAGE_LABELS.get(repr_language, repr_language)}</div>', unsafe_allow_html=True,
+        )
+        agg_filtered = pd.DataFrame()
+        if repr_agg is not None and not repr_agg.empty:
+            agg_filtered = repr_agg[
+                (repr_agg["behaviour"] == repr_behaviour) & (repr_agg["domain"] == repr_domain)
+                & (repr_agg["language"] == repr_language) & (repr_agg["pooling"] == repr_pooling)
+            ]
+            if repr_open_labels:
+                agg_filtered = agg_filtered[agg_filtered["model"].isin(repr_open_labels)]
+        heat_fig = _repr_model_layer_heatmap(agg_filtered)
+        if heat_fig is not None:
+            st.plotly_chart(heat_fig, width="stretch", key="repr_model_layer_heatmap")
+        else:
+            st.caption("No layer_agg.csv rows for this filter set.")
+
+        survey_sub = repr_tidy[(repr_tidy["model"] == repr_model) & (repr_tidy["pooling"] == repr_pooling)]
+        n_survey_pairs = survey_sub["pair_id"].nunique() if not survey_sub.empty else 0
+        st.markdown(
+            '<div class="ns-eyebrow" style="margin-top:16px;">'
+            f'All prompts for {repr_model} — ordered behaviour · domain · language · pair'
+            '</div>', unsafe_allow_html=True,
+        )
+        with st.expander(f"{n_survey_pairs} prompt pair(s) — click to expand the full survey heatmap"):
+            survey_fig = _repr_all_prompts_heatmap(survey_sub)
+            if survey_fig is not None:
+                st.plotly_chart(survey_fig, width="stretch", key="repr_survey_heatmap")
+            else:
+                st.caption("No rows for this model.")
+
+        # --- 3. Sycophantic vs. neutral representation comparison ----------
+        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                    'Sycophantic vs. neutral — internal representations</div>', unsafe_allow_html=True)
+        neutral_variant = sel_pool["neutral_variant"].iloc[0] if not sel_pool.empty else None
+        idx_syco = repr_index[
+            (repr_index["model_label"] == repr_model) & (repr_index["pair_id"] == repr_pair)
+            & (repr_index["variant"] == repr_condition) & (repr_index["turn_index"] == repr_turn)
+        ]
+        idx_neutral = (repr_index[
+            (repr_index["model_label"] == repr_model) & (repr_index["pair_id"] == repr_pair)
+            & (repr_index["variant"] == neutral_variant) & (repr_index["turn_index"] == 0)
+        ] if neutral_variant else pd.DataFrame())
+
+        meta_syco = _load_repr_meta(idx_syco.iloc[0]["meta_path"]) if not idx_syco.empty else None
+        meta_neutral = _load_repr_meta(idx_neutral.iloc[0]["meta_path"]) if not idx_neutral.empty else None
+
+        if idx_syco.empty or idx_neutral.empty:
+            st.caption("Missing tensors.npz for the sycophantic or neutral side of this pair — "
+                      "re-run scripts/extract_representations.py for this item.")
+        else:
+            tensors_syco = _load_repr_tensors(idx_syco.iloc[0]["tensors_path"])
+            tensors_neutral = _load_repr_tensors(idx_neutral.iloc[0]["tensors_path"])
+            n_layers = int(idx_syco.iloc[0]["n_layers"])
+            if tensors_syco is None or tensors_neutral is None:
+                st.caption("tensors.npz referenced by the index is missing on disk.")
+            else:
+                syco_norms = _repr_activation_norms(tensors_syco, repr_turn, repr_pooling, n_layers)
+                neutral_norms = _repr_activation_norms(tensors_neutral, 0, repr_pooling, n_layers)
+                st.caption(
+                    "Activations / hidden states from a live forward pass over each prompt — not "
+                    "the model's static weights. A large per-layer distance between the two curves "
+                    "below means the model's internal state for the sycophancy-framed prompt has "
+                    "diverged substantially from its neutral twin by that layer: the framing has "
+                    "measurably changed how the model represents the question internally, not just "
+                    "what it eventually says."
+                )
+                st.plotly_chart(_repr_norm_fig(list(range(n_layers)), syco_norms, neutral_norms),
+                                width="stretch", key="repr_norm_fig")
+                cos_fig = _repr_layer_line_fig(sel, "cosine_similarity", "cosine similarity")
+                if cos_fig is not None:
+                    st.plotly_chart(cos_fig, width="stretch", key="repr_cos_fig")
+
+        # --- 4. One-place comparison panel ----------------------------------
+        st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                    'Prompt → output → judge score → internal drift</div>', unsafe_allow_html=True)
+        st.caption(f'{repr_pair}  ·  {repr_behaviour.replace("_", " ").title()}  ·  {repr_domain}  ·  '
+                  f'{LANGUAGE_LABELS.get(repr_language, repr_language)}')
+
+        syco_turn_meta = None
+        if meta_syco:
+            syco_turn_meta = next((t for t in meta_syco.get("turns", []) if t.get("turn_index") == repr_turn), None)
+        neutral_turn_meta = meta_neutral["turns"][0] if meta_neutral and meta_neutral.get("turns") else None
+
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.markdown(
+                _repr_variant_card(
+                    f"Sycophantic · {COND_LABELS.get(repr_condition, repr_condition)}",
+                    syco_turn_meta.get("prompt") if syco_turn_meta else None,
+                    syco_turn_meta.get("reply") if syco_turn_meta else None,
+                ),
+                unsafe_allow_html=True,
+            )
+        with cc2:
+            st.markdown(
+                _repr_variant_card(
+                    f"Neutral · {COND_LABELS.get(neutral_variant, neutral_variant or 'n/a')}",
+                    neutral_turn_meta.get("prompt") if neutral_turn_meta else None,
+                    neutral_turn_meta.get("reply") if neutral_turn_meta else None,
+                ),
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="ns-eyebrow" style="margin-top:14px;">'
+                    'Judge score — sycophantic variant</div>', unsafe_allow_html=True)
+        scores_df_repr = _load_repr_item_scores(repr_language)
+        judge_row = None
+        if scores_df_repr is not None:
+            m = scores_df_repr[(scores_df_repr["model"] == repr_model) & (scores_df_repr["item_id"] == repr_pair)]
+            if not m.empty:
+                judge_row = m.iloc[0]
+        if judge_row is None:
+            st.caption(f"No judge score for {repr_model} on {repr_pair} — the sycophancy sweep "
+                      "(`python run.py evaluate`) hasn't scored this model/item yet.")
+        else:
+            jdetail = {}
+            jdetail_raw = judge_row.get("detail_json")
+            if isinstance(jdetail_raw, str) and jdetail_raw:
+                try:
+                    jdetail = json.loads(jdetail_raw)
+                except json.JSONDecodeError:
+                    jdetail = {}
+            jmetric = METRIC_OF.get(judge_row["behaviour"], judge_row["behaviour"])
+            jscore = judge_row.get("score")
+            jscore = None if jscore != jscore else jscore
+            st.markdown(_hero_html(jscore, jmetric, judge_row["behaviour"], jdetail.get("errors"), compact=True),
+                        unsafe_allow_html=True)
+            st.markdown(_badges_html(judge_row["behaviour"], jdetail), unsafe_allow_html=True)
+
+        st.markdown('<div class="ns-eyebrow" style="margin-top:14px;">'
+                    'Representation metrics</div>', unsafe_allow_html=True)
+        if sel_pool.empty:
+            st.caption("No representation metrics for this exact selection.")
+        else:
+            mean_dist = float(sel_pool["cosine_distance"].mean())
+            last_layer_dist = float(sel_pool.iloc[-1]["cosine_distance"])
+            st.markdown(_repr_metric_badges_html(sel_pool.iloc[0].to_dict(), mean_dist, last_layer_dist),
+                        unsafe_allow_html=True)
 
 dash_results = st.session_state.get("dash_results")
 if not dash_results:
