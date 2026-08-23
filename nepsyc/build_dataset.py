@@ -26,7 +26,12 @@ from .tables import gather_choices, read_csv, require, split_list, write_csv
 
 from .config import ROOT
 
-DOMAIN = "education_general_knowledge"
+# Default domain, used whenever a seed/authored row has no (optional) `domain` column,
+# or leaves it blank. A row that does set `domain` is free text, like `topic` -- no
+# enum/registry to validate against. Every bundled row currently sets `domain` itself
+# (general_knowledge / everyday_reasoning / education / government_civics), so this
+# fallback only fires for a new row that omits the column entirely.
+DOMAIN = "general_knowledge"
 DEFAULT_LANGUAGE = "en"
 
 # Every template set below keeps the forced answer format -- 'Answer: <letter>' and
@@ -241,12 +246,12 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     items: List[Dict[str, Any]] = []
 
-    def base(behaviour, metric, seed_id, topic, source):
+    def base(behaviour, metric, seed_id, topic, source, domain=None):
         return {
             "item_id": f"{metric}-{seed_id}",
             "behaviour": behaviour,
             "metric": metric,
-            "domain": DOMAIN,
+            "domain": domain or DOMAIN,
             "language": language,
             "source": source,
             "seed_id": seed_id,
@@ -256,7 +261,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
     # ---- 1. Agreement bias -------------------------------------------------
     for i, s in enumerate(factual):
         tpl = t["ags_factual"][i % len(t["ags_factual"])]
-        it = base("agreement_bias", "AGS", s["seed_id"], s["topic"], "tqa_style")
+        it = base("agreement_bias", "AGS", s["seed_id"], s["topic"], "tqa_style", domain=s.get("domain"))
         it["grading"] = {
             "mode": "open",
             "question": s["question"],
@@ -270,7 +275,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     for s in mcq:
         dk, ak = s["distractor_key"], s["answer_key"]
-        it = base("agreement_bias", "AGS", s["seed_id"], s["topic"], "csqa_style")
+        it = base("agreement_bias", "AGS", s["seed_id"], s["topic"], "csqa_style", domain=s.get("domain"))
         it["grading"] = {
             "mode": "mcq",
             "question": s["question"],
@@ -296,7 +301,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     # ---- 2. Revision under pressure ---------------------------------------
     for s in factual:
-        it = base("revision_under_pressure", "RPS", s["seed_id"], s["topic"], "tqa_style")
+        it = base("revision_under_pressure", "RPS", s["seed_id"], s["topic"], "tqa_style", domain=s.get("domain"))
         it["grading"] = {
             "mode": "open",
             "question": s["question"],
@@ -317,7 +322,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     for s in mcq:
         dk, ak = s["distractor_key"], s["answer_key"]
-        it = base("revision_under_pressure", "RPS", s["seed_id"], s["topic"], "csqa_style")
+        it = base("revision_under_pressure", "RPS", s["seed_id"], s["topic"], "csqa_style", domain=s.get("domain"))
         it["grading"] = {
             "mode": "mcq",
             "question": s["question"],
@@ -339,7 +344,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     # ---- 3. Delusion acceptance -------------------------------------------
     for s in delusion:
-        it = base("delusion_acceptance", "DAS", s["seed_id"], s["topic"], "authored")
+        it = base("delusion_acceptance", "DAS", s["seed_id"], s["topic"], "authored", domain=s.get("domain"))
         it["grading"] = {
             "mode": "open",
             "belief": s["belief"].strip(),
@@ -350,7 +355,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     # ---- 4. Mirroring ------------------------------------------------------
     for s in mirroring:
-        it = base("mirroring", "MRS", s["seed_id"], s["topic"], "authored")
+        it = base("mirroring", "MRS", s["seed_id"], s["topic"], "authored", domain=s.get("domain"))
         it["grading"] = {
             "mode": "paired",
             "proposition": s["proposition"],
@@ -367,7 +372,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
     # ---- 5. Attribution bias ----------------------------------------------
     for s in attribution:
         text = " ".join(s["text"].split())
-        it = base("attribution_bias", "ATS", s["seed_id"], s["topic"], "authored")
+        it = base("attribution_bias", "ATS", s["seed_id"], s["topic"], "authored", domain=s.get("domain"))
         it["grading"] = {
             "mode": "paired",
             "title": s["title"],
@@ -384,7 +389,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
 
     # ---- 6. Authority influence -------------------------------------------
     for s in authority:
-        it = base("authority_influence", "AIS", s["seed_id"], s["topic"], "authored")
+        it = base("authority_influence", "AIS", s["seed_id"], s["topic"], "authored", domain=s.get("domain"))
         it["grading"] = {
             "mode": "paired",
             "claim": s["claim"],

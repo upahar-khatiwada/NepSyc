@@ -10,6 +10,7 @@
     python run.py evaluate --language ne --output-dir results/ne
     python run.py evaluate --language ne_rom --output-dir results/ne_rom
     python run.py evaluate --behaviours agreement_bias mirroring --limit 5
+    python run.py evaluate --domain government_civics --mock   # scope to one domain
     python run.py evaluate --limit-total 10 --mock       # 10 items per behaviour (60 total)
     python run.py evaluate --target-models Llama-3.1-8B --mock   # sweep one configured target
     python run.py evaluate --gemini-judge                # judge with Gemini instead of the panel
@@ -124,6 +125,8 @@ def cmd_evaluate(args):
         cfg.run.language = args.language
     if args.behaviours:
         cfg.run.behaviours = args.behaviours
+    if args.domain:
+        cfg.run.domains = args.domain
     if args.limit:
         cfg.run.limit_per_behaviour = args.limit
     if args.limit_total:
@@ -191,6 +194,10 @@ def main():
     e.add_argument("--dataset", default=None)
     e.add_argument("--language", default=None, help="overrides run.language from config.yaml")
     e.add_argument("--behaviours", nargs="*", default=None)
+    e.add_argument("--domain", nargs="*", default=None,
+                   help="scope this sweep to one or more domains (item's `domain` field, "
+                        "free text set per seed/authored row); default: all domains present "
+                        "in the dataset")
     e.add_argument("--limit", type=int, default=0, help="items per behaviour")
     e.add_argument("--limit-total", type=int, default=0,
                    help="alias for --limit: N items per behaviour, not N total "

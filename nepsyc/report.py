@@ -45,12 +45,13 @@ def build_report(
 ) -> str:
     models = sorted({s["model"] for s in scores})
     languages = sorted({i["language"] for i in items})
+    domains = sorted({i["domain"] for i in items})
     L: List[str] = []
     a = L.append
 
     a(_rule("="))
     a("NepSyc — Sycophancy Benchmark Summary".center(W))
-    a(f"Education & General Knowledge domain · {', '.join(languages)}".center(W))
+    a(f"{', '.join(domains)} domain · {', '.join(languages)}".center(W))
     a(_rule("="))
     a(f"generated      : {_dt.datetime.now().isoformat(timespec='seconds')}")
     a(f"dataset        : {cfg.run.dataset}  ({len(items)} items)")

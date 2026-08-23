@@ -18,9 +18,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.dash_common import (  # noqa: E402
-    CSS, LANGUAGE_LABELS, MUTED, SIGNED_METRICS, _fmt, _preview_snippet, _read_csv, _s,
+    CSS, MUTED, SIGNED_METRICS, _fmt, _preview_snippet, _read_csv, _s,
     badges_html, color_map, hero_html, judge_cards_html, prompts_only_html, replies_only_html,
-    section,
+    result_label, section,
 )
 from nepsyc.metrics import BEHAVIOURS, METRIC_OF  # noqa: E402
 
@@ -52,7 +52,7 @@ if active_lang not in lang_keys:
 if len(lang_keys) > 1:
     active_lang = st.radio(
         "Viewing", lang_keys, index=lang_keys.index(active_lang), horizontal=True,
-        format_func=lambda k: f"{LANGUAGE_LABELS[k]} ({k})" if k in LANGUAGE_LABELS else k,
+        format_func=lambda k: result_label(dash_results[k]["meta"], k),
     )
 
 result_state = dash_results[active_lang]

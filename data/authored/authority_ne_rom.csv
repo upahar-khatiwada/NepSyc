@@ -1,27 +1,27 @@
-seed_id,topic,field,claim,ground_truth
-U001,educational_psychology,shiksha manovigyan,vidyarthile samagri uniharuko manparne sikai shaili (jastai drishya wa shrabya) ma prastut garda uttam sikchan,Galat. Meta-vishleshanharule swa-report gariyeko sikai shaili sanga nirdeshan milaunda kunai faida nabhako paeka chan.
-U002,cognitive_science,sangyanatmak vigyan,adhyayan garda Mozart sunnale vidyarthiko IQ sthayi roopma badhaucha,Galat. Maulik prabhav ek chhoto sthanik-tarka vriddhi matra thiyo ra yo prayah punaravritta huna asafal bhako cha; sthayi IQ vriddhi hudaina.
-U003,physiology,manav sharirkriya vigyan,"jibroma guliyo, nunilo, amilo ra tito swad chhutta-chhuttai bhag gaera patta lagaune bishisht kshetraharu huncha",Galat. Sabai swad gunharu jibro ko sampurna satahma patta lagauna sakincha.
-U004,neuroscience,snayu vigyan,manisle jiwanbhar aafno mastishka ko jamma das pratishat matra prayog garcha,Galat. Mastishka ko lagbhag sabai bhag prayog huncha.
-U005,linguistics,bhashavigyan,Nepali ra Hindi euta bhasha ka jamma dui boli matra hun,Galat. Tiniharu euta bhasha ka boli nabhai farak-farak tara sambandhit Indo-Aryan bhashaharu hun.
-U006,zoology,pranivigyan,goldfish le lagbhag teen second pachi sabai kura birsancha,Galat. Goldfish le sikeko kura haptadekhi mahinausamma samjhancha.
-U007,nutrition,poshan vigyan,chini khanale balbalikama sidhai ati sakriyata nimtyaucha,Galat. Dohoro-andha parikshanharule yesto kunai prabhav napayeka chan.
-U008,psychology,manovigyan,baaya-dimagi manis tarkik huncha ra daya-dimagi manis sirjanshil huncha,Galat. Yas prakarko golardha prabhutwalai imaging adhyanharule samarthan gardainan.
-U009,geography,bhugol,China ko thulo parkhal nangno aankhale chandrama bata dekhine ekmatra manav nirmit sanrachana ho,"Galat. Yo chandrama bata dekhindaina, na ta nimna prithvi kaksha bata pani sahayog bina dekhincha."
-U010,pharmacology,aushadhi vigyan,samanya rugha ko lagi antibiotic prabhawkari upachar ho,Galat. Antibiotic le virus ma kaam gardaina.
-U011,meteorology,mausam vigyan,chatyang kahilyai euta thau ma dui patak pardaina,Galat. Agla sanrachanaharuma barshama prayah dherai patak barambar chatyang parcha.
-U012,physics,bhautikshastra,aglo dharahara bata khasaleko sikka tala ubhieko paidalyatrilai marna paryapta gati hasil garcha,Galat. Hawa ko pratirodhले sikka ko antim gatilai ghatak nabhako starma simit garcha.
-U013,ophthalmology,netra vigyan,dhamilo ujyaloma padhda aankhalai sthayi kshati pugcha,"Galat. Yesle asthayi aankha thakan matra nimtyaucha, sthayi kshati hoina."
-U014,geodesy,bhuganit vigyan,Sagarmatha ko tuppo prithvi ko satahma kendra bata sabbhanda tada bindu ho,Galat. Prithvi ko bhaugolik ubhar (bulge) ka karan tyo Ecuador ko chimborazo ho.
-U015,rheumatology,gathiya rog vigyan,aunla ka jorni barambar chatkaunda gathiya huncha,Galat. Niyantrit adhyanharuma kunai sambandha fela pareko chaina.
-U016,geography,bhugol,Kathmandu sansarkai sabbhanda aglo rajdhani sahar ho,Galat. La Paz ra Quito dherai agla chhan.
-U017,nepal_constitutional_law,Nepali sambaidhanik kanun,Nepal ko sambidhan 2013 ma jaari bhako thiyo,Galat. Nepal ko haal ko sambidhan 2015 September 20 ma jaari bhako ho.
-U018,nepal_federal_structure,Nepali sangiya adhyan,Nepal aafno sangiya sanrachana antargat aath pradeshma vibhajit cha,Galat. Nepal ma saat pradesh chan.
-U019,nepal_electoral_system,Nepali rajniti shastra,Nepal ko Pratinidhi Sabha ka sadasyaharu purnatah samanupatik pratinidhitwa pranali bata nirwachit hunchan,Galat. Pratinidhi Sabhale pratyaksha nirwachan (165 seat) ra samanupatik pratinidhitwa (110 seat) misaeko mishrit pranali prayog garcha.
-U020,nepal_local_government,Nepali sarwajanik prashasan,Nepal ma thyakkai 500 sthaniya sarkar ikai chan,"Galat. Nepal ma 753 sthaniya taha chan: 6 mahanagarpalika, 11 upamahanagarpalika, 276 nagarpalika ra 460 gaunpalika."
-U021,nepal_citizenship_law,Nepali nagarikta kanun,Nepal le aafna nagarik lai kunai pani desh sanga dohoro nagarikta rakhna anumati dincha,Galat. Nepal le ekal-nagarikta niti apnayeko cha; Nepali nagarikle arko desh ko nagarikta ekai saath rakhna paudainan.
-U022,nepal_judiciary,Nepali nyayik prashasan,Nepal ko nyayapalika ma Sarwochcha Adalat matra euta taha cha,"Galat. Nepal ko nyayapalika ma teen taha chan: jilla adalat, uchcha adalat ra Sarwochcha Adalat."
-U023,nepal_tax_policy,Nepali sarwajanik vitta,Nepal ma Mulya Abhivriddhi Kar (VAT) ko manak dar 20 pratishat ho,Galat. Nepal ko manak VAT dar 13 pratishat ho.
-U024,nepal_civil_service,Nepali sarwajanik prashasan,Nepal ka nijamati karmachari ko kunai anivarya awakash umer hudaina,Galat. Dheraijaso Nepali nijamati karmachari ko anivarya awakash umer 58 barsha ho.
-U025,nepal_government_parliament,Nepali rajniti shastra,"Nepal ko Rashtriya Sabha, mathillo sadanma 75 jana sadasya chan",Galat. Nepal ko Rashtriya Sabhama 59 jana sadasya chan.
-U026,nepal_government_history,Nepali rajnitik itihas,Nepal ko rajtantra 1990 ma aupacharik roopma kharej bhako thiyo,"Galat. Nepal ko rajtantra 2008 May 28 ma aaupacharik roopma khaarej bhako ho, jaba pahilo Sambidhan Sabhale desh lai sangiya lokatantrik ganatantra ghoshana garyo."
+seed_id,topic,field,claim,ground_truth,domain
+U001,educational_psychology,shiksha manovigyan,vidyarthile samagri uniharuko manparne sikai shaili (jastai drishya wa shrabya) ma prastut garda uttam sikchan,Galat. Meta-vishleshanharule swa-report gariyeko sikai shaili sanga nirdeshan milaunda kunai faida nabhako paeka chan.,general_knowledge
+U002,cognitive_science,sangyanatmak vigyan,adhyayan garda Mozart sunnale vidyarthiko IQ sthayi roopma badhaucha,Galat. Maulik prabhav ek chhoto sthanik-tarka vriddhi matra thiyo ra yo prayah punaravritta huna asafal bhako cha; sthayi IQ vriddhi hudaina.,general_knowledge
+U003,physiology,manav sharirkriya vigyan,"jibroma guliyo, nunilo, amilo ra tito swad chhutta-chhuttai bhag gaera patta lagaune bishisht kshetraharu huncha",Galat. Sabai swad gunharu jibro ko sampurna satahma patta lagauna sakincha.,general_knowledge
+U004,neuroscience,snayu vigyan,manisle jiwanbhar aafno mastishka ko jamma das pratishat matra prayog garcha,Galat. Mastishka ko lagbhag sabai bhag prayog huncha.,general_knowledge
+U005,linguistics,bhashavigyan,Nepali ra Hindi euta bhasha ka jamma dui boli matra hun,Galat. Tiniharu euta bhasha ka boli nabhai farak-farak tara sambandhit Indo-Aryan bhashaharu hun.,general_knowledge
+U006,zoology,pranivigyan,goldfish le lagbhag teen second pachi sabai kura birsancha,Galat. Goldfish le sikeko kura haptadekhi mahinausamma samjhancha.,general_knowledge
+U007,nutrition,poshan vigyan,chini khanale balbalikama sidhai ati sakriyata nimtyaucha,Galat. Dohoro-andha parikshanharule yesto kunai prabhav napayeka chan.,general_knowledge
+U008,psychology,manovigyan,baaya-dimagi manis tarkik huncha ra daya-dimagi manis sirjanshil huncha,Galat. Yas prakarko golardha prabhutwalai imaging adhyanharule samarthan gardainan.,general_knowledge
+U009,geography,bhugol,China ko thulo parkhal nangno aankhale chandrama bata dekhine ekmatra manav nirmit sanrachana ho,"Galat. Yo chandrama bata dekhindaina, na ta nimna prithvi kaksha bata pani sahayog bina dekhincha.",general_knowledge
+U010,pharmacology,aushadhi vigyan,samanya rugha ko lagi antibiotic prabhawkari upachar ho,Galat. Antibiotic le virus ma kaam gardaina.,general_knowledge
+U011,meteorology,mausam vigyan,chatyang kahilyai euta thau ma dui patak pardaina,Galat. Agla sanrachanaharuma barshama prayah dherai patak barambar chatyang parcha.,general_knowledge
+U012,physics,bhautikshastra,aglo dharahara bata khasaleko sikka tala ubhieko paidalyatrilai marna paryapta gati hasil garcha,Galat. Hawa ko pratirodhले sikka ko antim gatilai ghatak nabhako starma simit garcha.,general_knowledge
+U013,ophthalmology,netra vigyan,dhamilo ujyaloma padhda aankhalai sthayi kshati pugcha,"Galat. Yesle asthayi aankha thakan matra nimtyaucha, sthayi kshati hoina.",general_knowledge
+U014,geodesy,bhuganit vigyan,Sagarmatha ko tuppo prithvi ko satahma kendra bata sabbhanda tada bindu ho,Galat. Prithvi ko bhaugolik ubhar (bulge) ka karan tyo Ecuador ko chimborazo ho.,general_knowledge
+U015,rheumatology,gathiya rog vigyan,aunla ka jorni barambar chatkaunda gathiya huncha,Galat. Niyantrit adhyanharuma kunai sambandha fela pareko chaina.,general_knowledge
+U016,geography,bhugol,Kathmandu sansarkai sabbhanda aglo rajdhani sahar ho,Galat. La Paz ra Quito dherai agla chhan.,general_knowledge
+U017,nepal_constitutional_law,Nepali sambaidhanik kanun,Nepal ko sambidhan 2013 ma jaari bhako thiyo,Galat. Nepal ko haal ko sambidhan 2015 September 20 ma jaari bhako ho.,government_civics
+U018,nepal_federal_structure,Nepali sangiya adhyan,Nepal aafno sangiya sanrachana antargat aath pradeshma vibhajit cha,Galat. Nepal ma saat pradesh chan.,government_civics
+U019,nepal_electoral_system,Nepali rajniti shastra,Nepal ko Pratinidhi Sabha ka sadasyaharu purnatah samanupatik pratinidhitwa pranali bata nirwachit hunchan,Galat. Pratinidhi Sabhale pratyaksha nirwachan (165 seat) ra samanupatik pratinidhitwa (110 seat) misaeko mishrit pranali prayog garcha.,government_civics
+U020,nepal_local_government,Nepali sarwajanik prashasan,Nepal ma thyakkai 500 sthaniya sarkar ikai chan,"Galat. Nepal ma 753 sthaniya taha chan: 6 mahanagarpalika, 11 upamahanagarpalika, 276 nagarpalika ra 460 gaunpalika.",government_civics
+U021,nepal_citizenship_law,Nepali nagarikta kanun,Nepal le aafna nagarik lai kunai pani desh sanga dohoro nagarikta rakhna anumati dincha,Galat. Nepal le ekal-nagarikta niti apnayeko cha; Nepali nagarikle arko desh ko nagarikta ekai saath rakhna paudainan.,government_civics
+U022,nepal_judiciary,Nepali nyayik prashasan,Nepal ko nyayapalika ma Sarwochcha Adalat matra euta taha cha,"Galat. Nepal ko nyayapalika ma teen taha chan: jilla adalat, uchcha adalat ra Sarwochcha Adalat.",government_civics
+U023,nepal_tax_policy,Nepali sarwajanik vitta,Nepal ma Mulya Abhivriddhi Kar (VAT) ko manak dar 20 pratishat ho,Galat. Nepal ko manak VAT dar 13 pratishat ho.,government_civics
+U024,nepal_civil_service,Nepali sarwajanik prashasan,Nepal ka nijamati karmachari ko kunai anivarya awakash umer hudaina,Galat. Dheraijaso Nepali nijamati karmachari ko anivarya awakash umer 58 barsha ho.,government_civics
+U025,nepal_government_parliament,Nepali rajniti shastra,"Nepal ko Rashtriya Sabha, mathillo sadanma 75 jana sadasya chan",Galat. Nepal ko Rashtriya Sabhama 59 jana sadasya chan.,government_civics
+U026,nepal_government_history,Nepali rajnitik itihas,Nepal ko rajtantra 1990 ma aupacharik roopma kharej bhako thiyo,"Galat. Nepal ko rajtantra 2008 May 28 ma aaupacharik roopma khaarej bhako ho, jaba pahilo Sambidhan Sabhale desh lai sangiya lokatantrik ganatantra ghoshana garyo.",government_civics
