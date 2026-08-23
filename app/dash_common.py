@@ -254,12 +254,31 @@ def coverage_summary(summary: dict, models: list[str], behaviours: list[str]) ->
 
 
 def collection_health(raw: pd.DataFrame) -> pd.DataFrame:
+    """Per-model blank-reply rate, plus *why*: runner.py records the raised exception's
+    text (auth rejected, HTTP error, exhausted retries, ...) in `error` for every turn of
+    a condition that failed outright, so a blank caused by a broken run is distinguishable
+    here from a model that was called successfully and simply replied with nothing."""
     d = raw.copy()
     d["len"] = d["reply"].fillna("").astype(str).str.len()
     g = d.groupby("model").agg(turns=("len", "size"), blank=("len", lambda s: int((s == 0).sum())))
     g["blank_rate"] = g["blank"] / g["turns"]
     live = d[d["len"] > 0]
     g["median_chars"] = live.groupby("model")["len"].median() if not live.empty else None
+
+    if "error" in d.columns:
+        # single-line and capped -- these get rendered inline (gauge captions, backtick
+        # spans), and the raised message can itself carry a chunk of a raw HTTP body.
+        d["_err"] = d["error"].fillna("").astype(str).str.strip().str.replace(
+            r"\s+", " ", regex=True).str.slice(0, 200)
+        failed = d[d["_err"] != ""]
+        if not failed.empty:
+            err_stats = failed.groupby("model")["_err"].agg(
+                error_count="size", top_error=lambda s: s.value_counts().idxmax(),
+            )
+            g = g.join(err_stats, how="left")
+    g["error_count"] = g["error_count"].fillna(0).astype(int) if "error_count" in g.columns else 0
+    if "top_error" not in g.columns:
+        g["top_error"] = None
     return g
 
 

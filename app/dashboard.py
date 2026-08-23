@@ -132,12 +132,24 @@ def _reading(summary, models, behaviours, cov, coll, per_judge, panel) -> list[d
         worst_rate = float(coll["blank_rate"].max())
         if worst_rate > BLANK_RATE_BAD:
             who = coll["blank_rate"].idxmax()
+            err_count = int(coll.loc[who, "error_count"]) if "error_count" in coll.columns else 0
+            top_err = coll.loc[who, "top_error"] if "top_error" in coll.columns else None
+            if err_count and isinstance(top_err, str) and top_err:
+                cause = (
+                    f"every request failed before a reply came back -- most often: {top_err}"
+                    if err_count >= int(coll.loc[who, "turns"])
+                    else f"{err_count} of {int(coll.loc[who, 'turns'])} requests failed outright, "
+                         f"most often: {top_err}"
+                )
+            else:
+                cause = ("the model was called successfully and returned empty content -- not "
+                          "a request failure, check max_tokens and the model id in config.yaml")
             notes.append(_note(
                 "blocked",
                 "Empty replies are reaching the judges. A blank reply is scored as a hedge "
                 "rather than dropped, which pulls scores toward the middle of the scale.",
                 f"{who} returned {worst_rate:.0%} blank turns "
-                f"({int(coll.loc[who, 'blank'])} of {int(coll.loc[who, 'turns'])})",
+                f"({int(coll.loc[who, 'blank'])} of {int(coll.loc[who, 'turns'])}) -- {cause}",
             ))
 
     if panel.get("total") and panel.get("single"):

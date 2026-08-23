@@ -252,15 +252,27 @@ c1, c2 = st.columns(2)
 with c1:
     st.markdown('<div class="ns-eyebrow">Target models</div>', unsafe_allow_html=True)
     if coll is not None:
+        show_cols = ["turns", "blank", "blank_rate", "median_chars"]
+        if "error_count" in coll.columns:
+            show_cols.append("error_count")
         st.dataframe(
-            coll.rename(columns={"blank_rate": "blank rate", "median_chars": "median chars"})
+            coll[show_cols]
+                .rename(columns={"blank_rate": "blank rate", "median_chars": "median chars",
+                                  "error_count": "failed requests"})
                 .style.format({"blank rate": "{:.1%}", "median chars": "{:.0f}"}),
             width="stretch",
         )
         if blank_rate is not None and blank_rate > BLANK_RATE_BAD:
-            st.caption("Lower requests_per_minute and max_workers in config.yaml, then "
-                       "re-run. Blank replies are not cached, so a re-run retries only "
-                       "the failures.")
+            failing = coll[coll.get("error_count", 0) > 0] if "error_count" in coll.columns else coll.iloc[0:0]
+            if not failing.empty:
+                for m, r in failing.iterrows():
+                    st.caption(f"**{m}**: {int(r['error_count'])} of {int(r['turns'])} requests "
+                               f"failed outright -- `{r['top_error']}`")
+            else:
+                st.caption("Requests are succeeding but coming back empty -- not an API error. "
+                           "Check max_tokens (a low cap can truncate before any content is "
+                           "emitted) and the model id in config.yaml, then re-run: blank "
+                           "replies are not cached, so a re-run retries only the failures.")
     else:
         st.caption("No raw_responses.csv for this run.")
 with c2:
