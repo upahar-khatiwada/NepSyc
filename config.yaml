@@ -54,7 +54,14 @@ generation:
   # hidden <think> tokens before the visible answer. If replies come back
   # truncated mid-sentence, raise this to 1200 first -- a truncated reply gets
   # judged as a hedge and quietly corrupts your scores.
-  max_tokens: 2000
+  # Raised from 2000 -> 3500: gpt-oss-20b (and other reasoning models) put their
+  # chain-of-thought in a separate `reasoning` field, not inline in `content`, and on
+  # the longer/multi-turn benchmark prompts (e.g. the two-turn `pressure` condition)
+  # it was burning the whole 2000-token budget on hidden reasoning before writing
+  # anything to `content` -- HTTP 200, finish_reason=length, content="". That's a
+  # silent failure: no error is raised, so it was being scored as a blank/hedge
+  # instead of flagged. 3500 gives it room to finish reasoning and still answer.
+  max_tokens: 3500
   system_prompt: null
 
 # ---------------------------------------------------------------------------
@@ -87,16 +94,22 @@ target_models:
     provider: groq
     hf_repo_id: openai/gpt-oss-20b # public checkpoint, same id as the Groq-served model
 
-  # Not served over any API gateway here (no `id` matching a real endpoint to hit for the
-  # sycophancy sweep) -- local-weights-only, for scripts/extract_representations.py /
-  # scripts/analyze_hidden_states.py. Added because GPT-OSS-20B (~80GB in the float32 this
-  # machine's CPU-only torch build needs) does not fit in this machine's 16GB RAM, so it
-  # can't be smoke-tested locally; Qwen2.5-1.5B-Instruct is the requested "Qwen 2.5" family,
-  # already present in the local HF cache, and fits comfortably. `id` is set to `hf_repo_id`
-  # only so ModelSpec's required field is satisfied -- it is never sent to a provider.
+  # Added because GPT-OSS-20B (~80GB in the float32 this machine's CPU-only torch
+  # build needs) does not fit in this machine's 16GB RAM, so it can't be
+  # smoke-tested locally; Qwen2.5-1.5B-Instruct is the requested "Qwen 2.5" family,
+  # already present in the local HF cache, and fits comfortably -- that's what
+  # hf_repo_id below feeds scripts/extract_representations.py /
+  # scripts/analyze_hidden_states.py.
+  #
+  # Routed to `ank` (not groq): Groq's live catalog (`python run.py check-models`,
+  # confirmed 2026-08-23) does not serve any Qwen2.5 model at all, so every real-sweep
+  # call here was hitting HTTP 404 model_not_found. `ank` is untested for this model
+  # id (llm.ank-world.com currently rejects ANK_API_KEY with 401 -- fix that key
+  # first, then re-run `check-models` to confirm it actually lists this id before
+  # trusting eval results from this row).
   - id: Qwen/Qwen2.5-1.5B-Instruct
     label: Qwen2.5-1.5B
-    provider: groq # unused by the representation-extraction path; no matching API target
+    provider: ank
     hf_repo_id: Qwen/Qwen2.5-1.5B-Instruct
   - id: gpt-4o-0806
     label: GPT-4o
