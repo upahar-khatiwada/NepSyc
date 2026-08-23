@@ -203,6 +203,21 @@ CSS = """
 """
 
 
+def result_label(meta: dict, key: str) -> str:
+    """Display label for one entry of st.session_state["dash_results"], which a
+    multi-language and/or multi-domain run keys by a compound string (see
+    dashboard.py's run loop). Falls back to the bare key for the "(loaded from disk)"
+    sentinel and any other entry with no language recorded in its meta."""
+    lang = meta.get("language")
+    if not lang:
+        return key
+    parts = [f"{LANGUAGE_LABELS.get(lang, lang)} ({lang})"]
+    domain = meta.get("domain")
+    if domain:
+        parts.append(domain)
+    return " · ".join(parts)
+
+
 def color_map(models: list[str]) -> dict[str, str]:
     """Assign each model a stable colour by declaration order, never by score rank."""
     return {m: CATEGORICAL[i % len(CATEGORICAL)] for i, m in enumerate(models)}

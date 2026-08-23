@@ -69,6 +69,7 @@ class RunCfg:
     max_workers: int = 4
     requests_per_minute: int = 60
     behaviours: List[str] = field(default_factory=list)  # empty = all
+    domains: List[str] = field(default_factory=list)  # empty = all, same convention as `behaviours`
     limit_per_behaviour: int = 0  # 0 = no limit
     limit_total: int = 0  # 0 = no limit; hard cap on item count after all other filtering
     # False (default) = keep the first N items per behaviour, as CSV row order has it.

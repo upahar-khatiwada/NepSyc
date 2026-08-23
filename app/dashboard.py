@@ -24,8 +24,9 @@ from app.dash_common import (  # noqa: E402
     MUTED, OK_COLOR, SIGNED_METRICS, WARN_COLOR, _badge_value, _fmt, _pct, _preview_snippet,
     _read_csv, _s, _score_color, badges_html as _badges_html, color_map,
     conversation_html as _conversation_html, hero_html as _hero_html,
-    judge_cards_html as _judge_cards_html,
+    judge_cards_html as _judge_cards_html, result_label,
 )
+from nepsyc import build_dataset  # noqa: E402
 from nepsyc.competence import run_competence_sweep  # noqa: E402
 from nepsyc.config import load_config  # noqa: E402
 from nepsyc.metrics import BEHAVIOURS, METRIC_OF  # noqa: E402
@@ -938,6 +939,20 @@ def _repr_fertility_fig(sub: pd.DataFrame) -> go.Figure | None:
     return fig
 
 
+@st.cache_data(show_spinner=False)
+def _discover_domains() -> list[str]:
+    """Domains actually present in the built dataset(s), unioned across whichever of
+    data/nepsyc_{en,ne,ne_rom}.csv already exist -- driven by data, never hardcoded.
+    Falls back to build_dataset.DOMAIN (the seed-loader default) when no dataset has
+    been built yet, so the sidebar still has one selectable option."""
+    domains: set[str] = set()
+    for lang in LANGUAGES:
+        df = _read_csv(ROOT / "data" / f"nepsyc_{lang}.csv")
+        if df is not None and "domain" in df.columns:
+            domains |= set(df["domain"].dropna().unique())
+    return sorted(domains) if domains else [build_dataset.DOMAIN]
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -996,6 +1011,17 @@ selected_languages = st.sidebar.multiselect(
          "runs them back-to-back and lets you switch between their results below -- "
          "scores are never pooled across languages.",
 )
+
+available_domains = _discover_domains()
+selected_domains = st.sidebar.multiselect(
+    "Domains", available_domains, default=available_domains,
+    help="An item's `domain` field (free text, set per seed/authored row; defaults to "
+         "education_general_knowledge). Follows the same pattern as Languages: each "
+         "domain gets its own sweep, run back-to-back, so scores are never pooled "
+         "across domains either. Discovered from the built dataset(s) on disk -- run "
+         "`python run.py build` first if this list looks empty or stale.",
+)
+
 selected_behaviours = st.sidebar.multiselect(
     "Behaviours", BEHAVIOURS, default=BEHAVIOURS,
     format_func=lambda b: f"{b.replace('_', ' ').title()} ({METRIC_OF[b]})",
@@ -1069,15 +1095,23 @@ if run_clicked:
         st.sidebar.error("Select at least one judge model.")
     elif not selected_languages:
         st.sidebar.error("Select at least one language.")
+    elif not selected_domains:
+        st.sidebar.error("Select at least one domain.")
     else:
         progress_area = st.empty()
         bar = progress_area.progress(0, text="Starting")
-        n_langs = len(selected_languages)
-        results_by_lang: dict[str, dict] = {}
-        errors_by_lang: dict[str, str] = {}
+        # Language changes which dataset file is loaded; domain only filters items
+        # already loaded from it. Scores must still never be pooled across domains
+        # (matching the Languages precedent), so each (language, domain) combination
+        # gets its own independent sweep rather than one sweep per language filtered
+        # to several domains at once.
+        combos = [(lang, domain) for lang in selected_languages for domain in selected_domains]
+        n_combos = len(combos)
+        results_by_key: dict[str, dict] = {}
+        errors_by_key: dict[str, str] = {}
 
-        for lang_i, lang in enumerate(selected_languages):
-            # A fresh Config per language: run_evaluation resolves the dataset from
+        for combo_i, (lang, domain) in enumerate(combos):
+            # A fresh Config per combo: run_evaluation resolves the dataset from
             # cfg.run.language only when cfg.run.dataset is still None, but it also
             # writes the resolved path back onto cfg.run.dataset as a side effect --
             # reusing one Config object across languages would make every language
@@ -1085,44 +1119,58 @@ if run_clicked:
             run_cfg = load_config()
             run_cfg.run.language = lang
             run_cfg.run.behaviours = list(selected_behaviours)
+            run_cfg.run.domains = [domain]
             run_cfg.run.limit_per_behaviour = int(items_per_behaviour)
             run_cfg.run.limit_from_end = bool(sample_from_end)
             run_cfg.run.target_model_ids = list(selected_target_labels)
             run_cfg.judges.models = list(selected_judges)
             run_cfg.judges.provider = judge_provider
-            # Every language would otherwise land in the same results/ dir and the
-            # later ones would overwrite the earlier ones' CSVs on disk. Only the
-            # single-language case keeps the plain "results" dir, so the common case
-            # still lines up with "Load last results" and the CLI's default output.
-            if n_langs > 1:
-                run_cfg.run.output_dir = f"results/{lang}"
+            # Every combo would otherwise land in the same results/ dir and later ones
+            # would overwrite earlier ones' CSVs on disk. Only the single-combo case
+            # (today's default: one language, one domain) keeps the plain "results"
+            # dir, so the common case still lines up with "Load last results" and the
+            # CLI's default output; a path segment is added only for whichever
+            # dimension actually varies, so a language-only multi-run still lands in
+            # exactly the same results/<lang> path it always has.
+            if n_combos > 1:
+                parts = []
+                if len(selected_languages) > 1:
+                    parts.append(lang)
+                if len(selected_domains) > 1:
+                    parts.append(domain)
+                run_cfg.run.output_dir = "results/" + "/".join(parts)
 
-            def _tick(frac: float, msg: str, _i=lang_i) -> None:
-                bar.progress(min(max((_i + frac) / n_langs, 0.0), 1.0),
-                            text=f"[{lang}] {msg} ({_i + 1}/{n_langs})")
+            # The single-domain case (today's default, since the dataset currently
+            # has only one) keeps the plain language key so results-state lookups
+            # elsewhere (e.g. "Load last results") stay unchanged.
+            key = lang if len(selected_domains) == 1 else f"{lang}__{domain}"
+
+            def _tick(frac: float, msg: str, _i=combo_i) -> None:
+                bar.progress(min(max((_i + frac) / n_combos, 0.0), 1.0),
+                            text=f"[{lang} · {domain}] {msg} ({_i + 1}/{n_combos})")
 
             try:
                 result = run_evaluation(run_cfg, mock=mock_mode, progress=_tick)
             except RuntimeError as e:
-                errors_by_lang[lang] = f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys."
+                errors_by_key[key] = f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys."
             except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
-                errors_by_lang[lang] = f"Run failed: {e}"
+                errors_by_key[key] = f"Run failed: {e}"
             else:
-                results_by_lang[lang] = {
+                results_by_key[key] = {
                     "summary": result["summary"], "paths": result["paths"],
                     "report_text": result["report_text"],
                     "meta": {"targets": selected_target_labels, "judges": selected_judges,
-                             "judge_provider": judge_provider, "language": lang,
+                             "judge_provider": judge_provider, "language": lang, "domain": domain,
                              "n_items": len(result["items"]), "mock": mock_mode,
                              "from_end": sample_from_end},
                 }
 
         progress_area.empty()
-        for lang, msg in errors_by_lang.items():
-            st.error(f"{LANGUAGE_LABELS[lang]} ({lang}): {msg}")
-        if results_by_lang:
-            st.session_state["dash_results"] = results_by_lang
-            st.session_state["dash_lang_view"] = next(iter(results_by_lang))
+        for key, msg in errors_by_key.items():
+            st.error(f"{key}: {msg}")
+        if results_by_key:
+            st.session_state["dash_results"] = results_by_key
+            st.session_state["dash_lang_view"] = next(iter(results_by_key))
 
 if load_clicked:
     try:
@@ -1139,7 +1187,7 @@ if load_clicked:
                       "judge_detail": out_dir / "judge_detail.csv", "report_txt": report_path},
             "report_text": report_path.read_text(encoding="utf-8") if report_path.exists() else None,
             "meta": {"targets": None, "judges": None, "judge_provider": None,
-                     "language": None, "n_items": None, "mock": None, "from_end": None},
+                     "language": None, "domain": None, "n_items": None, "mock": None, "from_end": None},
         }}
         st.session_state["dash_lang_view"] = "(loaded from disk)"
 
@@ -1656,7 +1704,7 @@ else:
         active_lang = st.radio(
             "Viewing", lang_keys, index=lang_keys.index(default_view), horizontal=True,
             key="dash_lang_view",
-            format_func=lambda k: f"{LANGUAGE_LABELS[k]} ({k})" if k in LANGUAGE_LABELS else k,
+            format_func=lambda k: result_label(dash_results[k]["meta"], k),
         )
     else:
         active_lang = lang_keys[0]
@@ -1695,7 +1743,8 @@ else:
         if meta["targets"] is not None:
             st.markdown(
                 f'<div class="ns-eyebrow" style="margin-top:14px;">'
-                f'{html.escape(meta["language"])} &nbsp;/&nbsp; {meta["n_items"]} items '
+                f'{html.escape(meta["language"])} &nbsp;/&nbsp; {html.escape(meta.get("domain") or "")} '
+                f'&nbsp;/&nbsp; {meta["n_items"]} items '
                 f'{"(last N per behaviour) " if meta.get("from_end") else ""}'
                 f'&nbsp;/&nbsp; judges via {html.escape(meta["judge_provider"])} '
                 f'&nbsp;/&nbsp; {"mock" if meta["mock"] else "live"}</div>',

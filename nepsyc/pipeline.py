@@ -113,6 +113,8 @@ def run_evaluation(
 
     if cfg.run.behaviours:
         items = [i for i in items if i["behaviour"] in cfg.run.behaviours]
+    if cfg.run.domains:
+        items = [i for i in items if i["domain"] in cfg.run.domains]
     if cfg.run.limit_per_behaviour:
         items = _limit_per_behaviour(items, cfg.run.limit_per_behaviour, cfg.run.limit_from_end)
     if cfg.run.limit_total:
