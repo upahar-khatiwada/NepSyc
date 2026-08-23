@@ -34,6 +34,15 @@ SIGNED_METRICS = {"MRS", "ATS", "AIS"}
 LANGUAGES = ["en", "ne", "ne_rom"]
 LANGUAGE_LABELS = {"en": "English", "ne": "Nepali (Devanagari)", "ne_rom": "Romanized Nepali"}
 
+# A sweep that silently drops most of its items still produces a full table of means and
+# confidence intervals. These thresholds drive both dashboard.py's Status/Reading sections
+# and the Scoring page's coverage/collection tables, so they live here rather than in either
+# page alone.
+COVERAGE_OK = 0.90
+COVERAGE_BAD = 0.50
+BLANK_RATE_BAD = 0.05
+MIN_N_FOR_CI = 10
+
 # Human-readable labels for the named conditions build_dataset.py produces.
 COND_LABELS = {
     "main": "Main", "pressure": "Pressure (3 turns)",
@@ -201,6 +210,82 @@ CSS = """
 .ns-promptcard .ns-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
 </style>
 """
+
+
+def meter_html(fraction, color) -> str:
+    f = 0.0 if fraction is None or fraction != fraction else max(0.0, min(1.0, fraction))
+    return f'<div class="ns-meter"><span style="width:{f * 100:.1f}%;background:{color};"></span></div>'
+
+
+def status_color(fraction, ok=COVERAGE_OK, bad=COVERAGE_BAD) -> str:
+    if fraction is None or fraction != fraction:
+        return MUTED
+    if fraction < bad:
+        return BAD_COLOR
+    if fraction < ok:
+        return WARN_COLOR
+    return OK_COLOR
+
+
+def entry(summary: dict, model: str, behaviour: str) -> dict | None:
+    return summary.get(f"{model}||{behaviour}")
+
+
+def coverage_summary(summary: dict, models: list[str], behaviours: list[str]) -> dict:
+    cells, scored_total, item_total = {}, 0, 0
+    for m in models:
+        for b in behaviours:
+            e = entry(summary, m, b)
+            if not e:
+                continue
+            total = e.get("n_items") or 0
+            scored = e.get("n_scored") or 0
+            cells[(m, b)] = (scored, total, (scored / total) if total else None)
+            scored_total += scored
+            item_total += total
+    return {
+        "cells": cells,
+        "overall": (scored_total / item_total) if item_total else None,
+        "scored": scored_total,
+        "items": item_total,
+        "short": [(m, b, s, t, f) for (m, b), (s, t, f) in cells.items()
+                  if f is not None and f < COVERAGE_OK],
+    }
+
+
+def collection_health(raw: pd.DataFrame) -> pd.DataFrame:
+    d = raw.copy()
+    d["len"] = d["reply"].fillna("").astype(str).str.len()
+    g = d.groupby("model").agg(turns=("len", "size"), blank=("len", lambda s: int((s == 0).sum())))
+    g["blank_rate"] = g["blank"] / g["turns"]
+    live = d[d["len"] > 0]
+    g["median_chars"] = live.groupby("model")["len"].median() if not live.empty else None
+    return g
+
+
+def judge_health(jd: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    per_judge = jd.groupby("judge_model").agg(
+        calls=("judge_model", "size"),
+        errors=("judge_error", "count"),
+    )
+    per_judge["error_rate"] = per_judge["errors"] / per_judge["calls"]
+
+    numeric = jd.copy()
+    numeric["v"] = pd.to_numeric(numeric["judge_value"], errors="coerce")
+    numeric = numeric[numeric["v"].notna()]
+
+    panel = {"judges_per_call": None, "single": 0, "total": 0, "spread": None, "unanimous": None}
+    if not numeric.empty:
+        grp = numeric.groupby(["model", "item_id", "call"])["v"]
+        sizes, spread = grp.size(), grp.max() - grp.min()
+        multi = spread[sizes >= 2]
+        panel["judges_per_call"] = float(sizes.mean())
+        panel["single"] = int((sizes < 2).sum())
+        panel["total"] = int(len(sizes))
+        if not multi.empty:
+            panel["spread"] = float(multi.mean())
+            panel["unanimous"] = float((multi == 0).mean())
+    return per_judge, panel
 
 
 def result_label(meta: dict, key: str) -> str:
