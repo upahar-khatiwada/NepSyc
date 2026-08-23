@@ -32,6 +32,9 @@ python run.py evaluate --mock            # full pipeline offline, no API key, ~5
 python run.py evaluate                   # the real sweep, run.language from config.yaml
 python run.py evaluate --language ne     # override run.language for one invocation
 python run.py evaluate --behaviours agreement_bias mirroring --limit 5
+python run.py evaluate --domain education_general_knowledge --mock   # scope to one or more
+                                          # domains (item's `domain` field); default: all
+                                          # domains present in the dataset
 python run.py evaluate --limit-total 1 --mock   # alias for --limit: N items PER behaviour,
                                           # not N total -- --limit-total 1 runs 1 item x
                                           # 6 behaviours (6 items), not 1 item total
@@ -118,6 +121,8 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
 - `config.py` — typed config loaded from `config.yaml`. `RunCfg.dataset` is `None` by default
   and derived at runtime as `data/nepsyc_<language>.csv`. `RunCfg.target_model_ids` is the
   same empty-means-all convention as `behaviours`, filtering `target_models` by id or label.
+  `RunCfg.domains` (empty = all) is the same convention again, filtering items by their
+  `domain` field (`--domain` on the CLI, a "Domains" multiselect in the dashboard).
   `RunCfg.limit_from_end` (default `False`) flips `limit_per_behaviour` / `limit_total` from
   keeping each behaviour's first N items to keeping its last N, so a small sweep can be pointed
   at a slice of the dataset a prior small sweep hasn't already covered.
@@ -133,7 +138,14 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
   changes. One deliberate exception: the forced-answer anchors `'Answer: <letter>'` and
   `'Rating: X/10'` stay in English in every language, because `metrics.py`'s regexes match
   those literal English words for deterministic MCQ flip detection and the rating-delta
-  cross-check — translating them would silently break both.
+  cross-check — translating them would silently break both. Every seed/authored row also
+  carries an *optional* `domain` column (`base(..., domain=s.get("domain"))`): free text like
+  `topic`, but unlike `topic` it's actually filterable (`--domain` / `cfg.run.domains` /
+  the dashboard's "Domains" multiselect) and shows up in the report header. A row with no
+  `domain` column, or a blank cell, falls back to the module-level `DOMAIN` constant
+  (`"education_general_knowledge"`) — which is why every bundled item today still reports that
+  one domain; adding a new domain is purely a data change (add/populate the `domain` column on
+  the rows that belong to it), never a code change.
 - `providers.py` — OpenAI-compatible chat client (`OpenAICompatProvider`), an append-only
   JSONL response cache keyed by `(base_url, model, messages, temperature, max_tokens)`
   (`ResponseCache`), a token-bucket-style rate limiter, a `MockProvider` for offline runs, and
@@ -158,7 +170,10 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
   `parse_rating` are the deterministic (non-judge) cross-checks mentioned above.
 - `report.py` — renders the `.txt` summary (`results/nepsyc_summary_<timestamp>.txt` and
   `..._latest.txt`), including the co-occurrence/correlation section and judge-reliability
-  section (Section 5 is the only evidence judge scores are trustworthy).
+  section (Section 5 is the only evidence judge scores are trustworthy). The header line reads
+  the domain(s) actually present in `items` (`sorted({i["domain"] for i in items})`) rather
+  than a hardcoded "Education & General Knowledge" string, so it reflects whatever `--domain`
+  scoped the sweep to.
 - `pipeline.py` — `run_evaluation(cfg, *, mock=False, human_file=None, progress=None) -> dict`
   is the evaluate pipeline (dataset build/load, provider routing, collect, judge, score,
   aggregate, write item_scores.csv / summary.json / judge_detail.csv / the .txt report) as an
@@ -168,7 +183,10 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
   `cli.cmd_evaluate` always has -- this is a pure extraction, not a schema change. `progress`,
   if given, is called at coarse milestones (`dataset ready`, `responses collected`, `scoring
   done`, `report written`) with a `(fraction, message)` pair; `collect()`'s own tqdm bar is
-  unchanged and still prints for CLI use regardless. `_limit_per_behaviour(items, n, from_end)`
+  unchanged and still prints for CLI use regardless. Domain filtering (`if cfg.run.domains:
+  items = [i for i in items if i["domain"] in cfg.run.domains]`) runs right after the
+  behaviour filter and before either limit, so `--limit`/`--limit-total` count items within
+  the already-domain-scoped set. `_limit_per_behaviour(items, n, from_end)`
   backs both `limit_per_behaviour` and `limit_total`: it keeps each behaviour's first N items,
   or its last N when `cfg.run.limit_from_end` is set, selecting by `id()` so the output keeps
   `items`' original relative order rather than regrouping by behaviour. `list_configured_models(cfg)`
@@ -313,41 +331,58 @@ notably, no model currently has *both* representation data and sycophancy-judge 
 representation-drift-vs-judge-score relationship is not yet measurable at all (a structural gap,
 not a weak result).
 
-Dashboard section: `app/dashboard.py`'s "Representational learning" block follows the Language
-Competence precedent (own place in the page, pure reader of precomputed files, never triggers
-extraction itself) with a "Research panels (optional)" sub-section reading the five
-`research_*.csv` files independently — each panel's own caption states its `n` so a low-sample
-result is never presented as if it were settled.
+Dashboard page: the Representational Learning page (`app/pages/3_Representational_Learning.py`,
+see below) follows the Language Competence precedent (own place in the nav, pure reader of
+precomputed files, never triggers extraction itself) with a "Research panels (optional)"
+sub-section reading the five `research_*.csv` files independently — each panel's own caption
+states its `n` so a low-sample result is never presented as if it were settled.
 
-### Dashboard (`app/dashboard.py`)
+### Dashboard (`app/dashboard.py`) — entry point, sidebar, Status/Prompt inspector
 
 Streamlit UI over the same pipeline the CLI uses — additive only, no pipeline/config/output
-schema changes. Sidebar builds a `Config` from `load_config()` plus widget values (target
-models via `cfg.run.target_model_ids`, judge models/provider via `cfg.judges.*`, behaviours,
+schema changes. The app is a multi-page Streamlit app now: `app/dashboard.py` is still the
+entry point (`streamlit run app/dashboard.py`) and owns the sidebar (so it's the only page
+that can trigger a run), but two sections that used to live on it were pulled out to their own
+pages as the page grew — per-behaviour scoring to `app/pages/2_Scoring.py` and representational
+learning to `app/pages/3_Representational_Learning.py` (both described below). What's left on
+the main page after a run: the "Status" gauges, a "Reading" section (plain-language claims the
+run does/doesn't support), the "Prompt inspector" (walk one behaviour → model → item down to
+the actual conversation, including a "Local hidden-state analysis" sub-block), a "Files"
+section with download buttons, and two short stub sections pointing at the Scoring and
+Representational Learning pages for anyone who remembers the old single-page layout.
+
+Sidebar builds a `Config` from `load_config()` plus widget values (target models via
+`cfg.run.target_model_ids`, judge models/provider via `cfg.judges.*`, behaviours,
 `limit_per_behaviour`, a "Take last N instead of first N" toggle wired to `limit_from_end` (CLI
 equivalent: `--from-end`), and the mock toggle) and calls `pipeline.run_evaluation(cfg, mock=...,
 progress=...)`; a `RuntimeError` from a provider (missing API key, exhausted retries) is caught
-and shown as `st.error` instead of a traceback, with a pointer back to mock mode. Charts are
-Plotly bar-with-CI, one per behaviour, respecting `report.DIRECTION` (0..5 vs. signed −5..+5,
-never treating the two the same way); model→color is assigned once by declaration order so a
-model keeps its color across every chart, per the dataviz skill's "color follows the entity,
-never its rank."
+and shown as `st.error` instead of a traceback, with a pointer back to mock mode.
 
-"Languages" is a multiselect, not the single dropdown a single sweep's `cfg.run.language` might
-suggest: picking more than one runs a separate `run_evaluation` call per language, each against
-its own freshly-`load_config()`-ed `Config` (never a shared/mutated one — `run_evaluation`
+"Languages" and "Domains" are both multiselects, not the single dropdowns a single sweep's
+`cfg.run.language` / `cfg.run.domains` might suggest, and they compose: picking N languages ×
+M domains runs N×M separate `run_evaluation` calls (one per `(language, domain)` combo), each
+against its own freshly-`load_config()`-ed `Config` (never a shared/mutated one — `run_evaluation`
 writes the resolved dataset path back onto `cfg.run.dataset` as a side effect, so reusing one
-`Config` object across languages would make every language after the first silently reuse the
-first one's dataset). Output directory follows the same one-sweep-shouldn't-clobber-another
-logic: the plain `results/` dir (unchanged) when exactly one language is selected, so "Load last
-results" still lines up with a normal single-language run or a CLI run; `results/<language>/`
-per language when more than one is selected, so they don't overwrite each other's CSVs.
-Results land in `st.session_state["dash_results"]`, a `{language: {summary, paths, report_text,
-meta}}` dict (`"Load last results"` populates it with the single sentinel key
-`"(loaded from disk)"`); a "Viewing" radio appears whenever it holds more than one entry, letting
-you switch which language's results the rest of the page renders — scores are still never
-pooled across languages, matching the CLI's report caveat that AGS in `en` vs. `ne` has to be
-diffed by hand, not averaged.
+`Config` object across combos would make every combo after the first silently reuse the first
+one's dataset). `_discover_domains()` (`st.cache_data`) unions whichever `domain` values are
+actually present across whatever `data/nepsyc_{en,ne,ne_rom}.csv` files already exist on disk —
+never hardcoded — falling back to `build_dataset.DOMAIN` if no dataset has been built yet, so
+the multiselect always has at least one option. Output directory follows the same
+one-sweep-shouldn't-clobber-another logic as before, generalized to two dimensions: the plain
+`results/` dir (unchanged) when exactly one combo is selected, so "Load last results" still
+lines up with a normal single-combo run or a CLI run; otherwise `results/<parts>` where `parts`
+includes only whichever dimension(s) actually vary (a language-only multi-run still lands in
+exactly `results/<lang>`, as before domains existed).
+
+Results land in `st.session_state["dash_results"]`, a `{key: {summary, paths, report_text,
+meta}}` dict keyed by `language` when only one domain is selected (unchanged from before
+domains existed) or by `f"{language}__{domain}"` when more than one domain is in play;
+`"Load last results"` populates it with the single sentinel key `"(loaded from disk)"`. A
+"Viewing" radio appears whenever it holds more than one entry, using `dash_common.result_label
+(meta, key)` to render each option as `"{language label} ({lang}) · {domain}"` (or just the
+bare key for the disk-loaded sentinel) — scores are still never pooled across languages *or*
+domains, matching the CLI's report caveat that AGS in `en` vs. `ne`, or in one domain vs.
+another, has to be diffed by hand, not averaged.
 
 Judge model options follow the judge provider, not a fixed list: `_judge_model_options(cfg,
 info, provider)` returns `judges.models` from config.yaml as-is only when `provider` matches
@@ -360,11 +395,11 @@ specifically (mirroring the `--gemini-judge` CLI shorthand) since no target may 
 switching provider resets the selection to that provider's full option set instead of carrying
 over model ids that belonged to whichever provider was picked before.
 
-The item explorer and downloads read straight from the files `run_evaluation` already writes
+The Prompt inspector and downloads read straight from the files `run_evaluation` already writes
 (`item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`, `summary.json`, the `.txt` report)
-for whichever language is active — there is no separate in-memory result path, so "Run
-benchmark" and "Load last results" render through the same code. The item explorer ("Prompt
-inspector") filters behaviour first, then model, then a single scored item, because the driving
+for whichever combo is active — there is no separate in-memory result path, so "Run
+benchmark" and "Load last results" render through the same code. The Prompt inspector filters
+behaviour first, then model, then a single scored item, because the driving
 use case is "show me the prompt behind this model's AIS score" rather than browsing a flat
 table; its "Scored item" dropdown label is otherwise just ids and scores (nothing language-
 specific to localize), so each option also gets a `_preview_snippet` of that item's actual first
@@ -388,20 +423,49 @@ the headline, with a per-model expander showing the BLEU/chrF++ breakdown by dir
 renders unconditionally, above the `dash_results` branch, since it has no dependency on whether
 a sycophancy sweep has been run or which language is being viewed.
 
+### Scoring page (`app/pages/2_Scoring.py`)
+
+Pulled off the main page once it grew too long: the headline scores table (models × the six
+metrics), coverage, collection/judging health, and one Plotly bar chart per behaviour with 95%
+bootstrap CIs — the 0..5 "higher = more sycophantic" metrics (AGS/DAS/RPS) and the signed
+−5..+5 difference metrics (MRS/ATS/AIS) are charted differently, per `report.DIRECTION`, never
+treated the same way. Model→color is assigned once by declaration order (`color_map()`) so a
+model keeps its color across every chart, per the dataviz skill's "color follows the entity,
+never its rank." A pure reader of `st.session_state["dash_results"]` — it never runs a sweep
+itself; if `dash_results` isn't set yet it points back at the main page and stops, same pattern
+as the Human Annotation page. Same "Viewing" radio (`dash_common.result_label`) as the main
+page when more than one `(language, domain)` combo is loaded.
+
+### Representational Learning page (`app/pages/3_Representational_Learning.py`)
+
+Also pulled off the main page: sycophantic-vs-neutral hidden-state analysis (see
+"Representation-level analysis" above), plus the five optional research panels. Unlike the
+Scoring page, this one does **not** read `st.session_state["dash_results"]` at all — it's a
+third standalone axis, so it goes straight to `data/representation/metrics/` and
+`results/representations/` on disk, independent of whether any sycophancy sweep has been run.
+Filters (model, behaviour, domain, language, prompt pair) drive which precomputed rows get
+plotted; nothing on this page loads model weights or triggers extraction — that only ever
+happens via `scripts/extract_representations.py`, run separately, offline.
+
 ### Shared dashboard helpers (`app/dash_common.py`)
 
-Constants and pure-render helpers used by both `app/dashboard.py` and every page under
+Constants and pure-render helpers used by `app/dashboard.py` and every page under
 `app/pages/` live here, not in `dashboard.py` itself: the `CSS` block (`ns-*` classes), the
 categorical color palette and `color_map()`, `SIGNED_METRICS`/`LANGUAGE_LABELS`,
-`COND_LABELS`/`DETAIL_FIELDS`, and the html builders (`hero_html`, `badges_html`,
+`COND_LABELS`/`DETAIL_FIELDS`, the html builders (`hero_html`, `badges_html`,
 `conversation_html`, `judge_cards_html`, plus the annotation page's `prompts_only_html`/
-`replies_only_html` split). This module has no top-level widget calls or `st.set_page_config`,
-so importing it is side-effect free — the reason it's a plain module and not something
-`dashboard.py` exposes for the pages to import, since importing a Streamlit *page* script
-(as opposed to a helpers module) re-executes everything in it, sidebar included. Every page
-that uses the `ns-*` markup must call `st.markdown(dash_common.CSS, unsafe_allow_html=True)`
-itself — CSS injected by `dashboard.py` does not carry over to other pages, each gets a fresh
-DOM on navigation.
+`replies_only_html` split), and — moved here in the page-split that produced the Scoring and
+Representational Learning pages, since both those pages need them too — the coverage/health
+helpers (`coverage_summary`, `collection_health`, `judge_health`, `entry`, `status_color`,
+`meter_html`) that used to be private to `dashboard.py`, plus `result_label(meta, key)` (the
+`"{language label} ({lang}) · {domain}"` formatter for a `dash_results` key, used by every page
+that renders the "Viewing" radio). This module has no top-level widget calls or
+`st.set_page_config`, so importing it is side-effect free — the reason it's a plain module and
+not something `dashboard.py` exposes for the pages to import, since importing a Streamlit
+*page* script (as opposed to a helpers module) re-executes everything in it, sidebar included.
+Every page that uses the `ns-*` markup must call `st.markdown(dash_common.CSS,
+unsafe_allow_html=True)` itself — CSS injected by `dashboard.py` does not carry over to other
+pages, each gets a fresh DOM on navigation.
 
 ### Human annotation page (`app/pages/1_Human_Annotation.py`)
 
@@ -444,6 +508,10 @@ quality:
 
 Every seed/authored file has three language copies (`_en`, `_ne`, `_ne_rom`) with identical
 `seed_id`s and row counts — only the natural-language content differs.
+
+Both kinds also accept the same optional `domain` column (see `build_dataset.py` above) —
+domain is orthogonal to seed-vs-authored: a new domain can mix rows from either kind of file,
+same as the six behaviours already do.
 
 ### Validation philosophy
 

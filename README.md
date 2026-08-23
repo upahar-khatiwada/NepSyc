@@ -12,6 +12,7 @@ python run.py evaluate --mock     # full pipeline, no API key, ~5s, run.language
 python run.py check-models        # what your gateway actually serves today
 python run.py evaluate            # the real sweep
 python run.py evaluate --language ne   # same sweep, Nepali split
+python run.py evaluate --domain education_general_knowledge   # scope to one/more domains
 python run.py evaluate --limit-total 10 --mock   # quick smoke test, a handful of items
 python run.py evaluate --target-models Llama-3.1-8B   # sweep a subset of target_models, by id or label
 python run.py evaluate --gemini-judge             # judge with Gemini instead of the open-weight panel
@@ -20,23 +21,46 @@ python run.py competence --mock                   # Nepali language competence p
 python run.py competence --target-models Llama-3.1-8B
 
 streamlit run app/dashboard.py    # dashboard: pick target/judge models, run, see charts
+
+# Representation-level analysis (sycophantic vs. neutral hidden states) -- see
+# "Representation-level analysis" below; a third standalone axis, own commands, own outputs.
+python scripts/build_neutral_pairs.py             # data/nepsyc_* -> data/representation/neutral_*.csv
+python scripts/validate_neutral_pairs.py          # checks the pairing before anything reads it
+python scripts/extract_representations.py --dry-run   # preview model x pair x variant counts
 ```
 
 ## Dashboard
 
 `app/dashboard.py` is a Streamlit UI over the same `pipeline.run_evaluation()` the CLI calls —
-no separate code path, no schema changes. Pick target models and judge models (from what's
-declared in `config.yaml`), a language, which of the six behaviours to run, and items-per-behaviour,
-then click **Run benchmark**. **Mock mode** is on by default, so it runs out of the box with no
-API key; turn it off for a real (costed) sweep against the providers configured for the selected
-models. A missing API key or exhausted-retries error shows as a plain message pointing back to
-mock mode, not a traceback.
+no separate code path, no schema changes. It's a multi-page app: `app/dashboard.py` is the
+entry point and owns the sidebar (the only place a sweep is started from), with three more
+pages reachable from Streamlit's automatic sidebar nav:
 
-Results render as a headline table (models × the six metrics) plus one Plotly bar chart per
-behaviour with 95% CI error bars — the 0..5 "higher = more sycophantic" metrics (AGS/DAS/RPS) and
-the signed −5..+5 difference metrics (MRS/ATS/AIS) are charted differently, per `report.DIRECTION`.
-An item explorer filters `results/item_scores.csv` and, per item, shows the matching prompt/reply
-from `raw_responses.csv` and judge rationales from `judge_detail.csv`. Download buttons hand back
+| page | what it shows |
+| --- | --- |
+| **NepSyc** (`dashboard.py`) | sidebar controls, run integrity gauges, a plain-language "what this run supports" reading, the Prompt inspector (drill one behaviour → model → item down to the actual conversation), file downloads, and the Language Competence section |
+| **Scoring** (`pages/2_Scoring.py`) | the headline table (models × the six metrics) and one Plotly bar chart per behaviour with 95% CI error bars |
+| **Representational Learning** (`pages/3_Representational_Learning.py`) | sycophantic-vs-neutral hidden-state analysis, see below |
+| **Human Annotation** (`pages/1_Human_Annotation.py`) | side-by-side model comparison for manual annotation |
+
+Pick target models and judge models (from what's declared in `config.yaml`), which language(s)
+and domain(s) to run, which of the six behaviours, and items-per-behaviour, then click **Run
+benchmark**. **Mock mode** is on by default, so it runs out of the box with no API key; turn it
+off for a real (costed) sweep against the providers configured for the selected models. A
+missing API key or exhausted-retries error shows as a plain message pointing back to mock mode,
+not a traceback.
+
+**Languages** and **Domains** are both multiselects that compose: picking more than one of
+either runs a separate sweep per `(language, domain)` combination rather than pooling them — a
+**Viewing** selector then lets you switch between combos on the Scoring/Prompt-inspector/Human
+Annotation pages without ever averaging scores across a language or domain boundary. See
+"Domains" above for how domains are discovered and how to add a new one.
+
+Bar charts and the headline table (Scoring page) split the 0..5 "higher = more sycophantic"
+metrics (AGS/DAS/RPS) from the signed −5..+5 difference metrics (MRS/ATS/AIS), per
+`report.DIRECTION` — never charted the same way. The Prompt inspector (main page) filters
+`results/item_scores.csv` and, per item, shows the matching prompt/reply from
+`raw_responses.csv` and judge rationales from `judge_detail.csv`. Download buttons hand back
 `summary.json`, `item_scores.csv`, `raw_responses.csv`, `judge_detail.csv`, and the `.txt` report;
 a **Load last results** button re-renders an existing `results/summary.json` without re-running.
 
@@ -199,8 +223,11 @@ and field is malformed, not a bug to work around.
 validates its value, only that the column exists. It is cosmetic: the only place it's read is
 `report.py`'s "top items by score" table, which groups by it for display. Existing values are
 short snake_case labels (`health_misconception`, `astronomy`, `nutrition`, `geography_misconception`,
-...) — match that style; there's no registry to update. It does not set `domain`, which is a
-single hardcoded constant applied to every item regardless of topic or language.
+...) — match that style; there's no registry to update.
+
+`domain` is a related but separate, *optional* column every file above also accepts (not shown
+in the tables above since no bundled row currently sets it): unlike `topic`, it's filterable —
+see "Domains" below for how to add a new one.
 
 One real constraint applies to _which file_ you add a new topic to, not to `topic` itself: for
 `factual_<lang>.csv` / `mcq_<lang>.csv` (AGS/RPS), the row needs an objectively verifiable false
@@ -331,6 +358,49 @@ call passes the (possibly Nepali) item content and model reply as context into a
 system prompt, on the assumption that the judge models are themselves multilingual enough to
 read Nepali and follow English grading instructions. If you evaluate with judge models that
 can't do that reliably, that assumption — not the dataset — is the thing to revisit first.
+
+## Domains
+
+Every item also carries a `domain` (`nepsyc/build_dataset.py`'s `DOMAIN` constant,
+`"education_general_knowledge"`, unless a row overrides it — see "Adding a new domain" below).
+It follows the same empty-means-all filtering convention as behaviours and languages:
+
+```bash
+python run.py evaluate --domain education_general_knowledge --mock   # one domain
+python run.py evaluate --domain health medicine --mock               # several at once
+python run.py evaluate --mock                                        # default: every domain present
+```
+
+`--domain` sets `cfg.run.domains`; an empty list (the default) means no filtering, i.e. every
+domain present in the built dataset. The report header (`nepsyc_summary_latest.txt`) lists
+whichever domain(s) the run actually covered instead of a fixed string, so it's always accurate
+even after scoping a sweep down. The dashboard has a matching **Domains** multiselect next to
+**Languages** in the sidebar, populated from whatever `domain` values are actually present
+across the built `data/nepsyc_{en,ne,ne_rom}.csv` files (run `python run.py build` first if it
+looks empty or stale) — and, like Languages, picking more than one runs a separate sweep per
+`(language, domain)` combination rather than pooling them, so a "Viewing" selector lets you
+switch between combos without ever averaging scores across domains.
+
+### Adding a new domain
+
+Domain, unlike behaviour, isn't a fixed enum baked into the pipeline — it's an ordinary column
+on the seed/authored CSVs, same shape as `topic` but actually used for filtering. To introduce
+one:
+
+1. Add a `domain` column to the seed/authored CSV(s) the new items belong in (or add the column
+   if the file doesn't have one yet — existing rows with no `domain` cell keep defaulting to
+   `education_general_knowledge`, so this is backward compatible).
+2. Set the new domain value (free text, short snake_case by convention, e.g. `health_medicine`)
+   on the rows that belong to it. A domain can span both `data/seeds/` and `data/authored/`,
+   and any mix of behaviours — it's an orthogonal axis, not tied to either.
+3. Do this identically across `_en`, `_ne`, `_ne_rom` for the same `seed_id`, same as any other
+   column edit (see "Adding more test items by hand" above).
+4. Run `python run.py build` to compile it into `data/nepsyc_<lang>.csv`, then
+   `python run.py evaluate --domain <new_domain> --mock` to sanity-check the new slice before a
+   real sweep.
+
+No code changes anywhere in the pipeline are needed — `build_dataset.py`, `pipeline.py`,
+`report.py` and the dashboard all read whatever domains show up in the data.
 
 ## Metric definitions
 
@@ -547,6 +617,73 @@ It reuses the exact same model-API client as the sycophancy pipeline (`providers
 the same `.cache/responses.jsonl`) rather than a second one, and the same mock backend
 (`providers.MockProvider`) for `--mock` / offline testing.
 
+## Representation-level analysis: sycophantic vs. neutral prompts
+
+A third standalone axis, alongside `evaluate` and `competence`: instead of asking "did the
+model's *reply* flatter the user", this compares the model's internal hidden states under an
+existing sycophancy-framed prompt against a matched **neutral** (unframed) counterpart of the
+same item, layer by layer. Open-weight models only (it needs the weights locally to read
+activations). Full writeup with computed numbers: `docs/REPRESENTATION_LEARNING_REPORT.md`;
+design rationale: `docs/REPRESENTATION_ANALYSIS_PLAN.md`.
+
+```
+data/nepsyc_{en,ne,ne_rom}.csv          (untouched -- the sycophantic items you already have)
+    |  python scripts/build_neutral_pairs.py
+    v
+data/representation/neutral_{en,ne,ne_rom}.csv, pairs_manifest.csv
+    |  python scripts/validate_neutral_pairs.py     (checks pairing integrity, prints coverage)
+    |  python scripts/extract_representations.py    (only target_models with hf_repo_id set)
+    v
+results/representations/   (gitignored -- real model weights get loaded here)
+    |  python scripts/analyze_representation_drift.py     (pure reader, no model load)
+    |  python scripts/analyze_representation_research.py  (optional extra panels)
+    v
+data/representation/metrics/*.csv       (committed)
+    |  python scripts/make_representation_report_figures.py
+    v
+docs/figures/representation/*.png
+```
+
+### Adding non-sycophantic ("neutral") prompt data
+
+The neutral half of every pair is **generated automatically**, not hand-authored — one fixed,
+mechanical rule per behaviour strips the sycophancy trigger from the *existing* sycophantic
+item (drop the false claim, drop the "I strongly believe" opener, drop the authority citation,
+...), so the transformation stays reproducible and auditable rather than a rewrite someone has
+to keep in sync by hand. Concretely, that means:
+
+- **Growing the existing six behaviours needs no extra work here.** Add sycophantic items the
+  normal way (see "Adding more test items by hand" above), `python run.py build`, then
+  re-run `python scripts/build_neutral_pairs.py` — it regenerates
+  `data/representation/neutral_*.csv` and `pairs_manifest.csv` for every item currently in
+  `data/nepsyc_*.csv`, including the ones you just added, with no changes to
+  `nepsyc/neutral_pairs.py` required.
+- **Adding a brand-new *behaviour*** (a seventh sycophancy axis) is the one case that does need
+  a code change: `nepsyc/neutral_pairs.py`'s `build_neutral_item()` has an explicit branch per
+  behaviour and raises `ValueError` for anything it doesn't recognize, on purpose — you add one
+  more fixed, mechanical stripping rule there (see its module docstring for the existing six as
+  a model to follow), and, only if the behaviour's neutral turn can't be reconstructed from
+  fields the sycophantic item already has, a new per-language template in
+  `NEUTRAL_TEMPLATES` (the pattern `attribution_bias`/`authority_influence` already use).
+- **One exception needs nothing at all:** `attribution_bias` has no separate neutral item —
+  its existing `anonymous` condition already carries no self-authorship claim, so it doubles as
+  the neutral proxy automatically (flagged `is_neutral_proxy=True` downstream).
+- Always run `python scripts/validate_neutral_pairs.py` after regenerating — it asserts there
+  are no orphaned pairs in either direction and that behaviour/domain/language line up between
+  a sycophantic item and its neutral counterpart, before anything downstream trusts the pairing.
+
+### Extracting and reading representations
+
+`scripts/extract_representations.py` only considers `target_models` entries in `config.yaml`
+that set `hf_repo_id` (a Hugging Face Hub repo id) — see the comment above `target_models` in
+`config.yaml` for the full option shape, and "Models" above for provider config generally. It
+loads real model weights locally, so start with `--dry-run` (lists model × pair × variant
+counts, extracts nothing) and `--limit`/`--model`/`--language` to scope a first real run before
+committing to the full pair pool. Output lands in `results/representations/` (gitignored, like
+`results/`); `scripts/analyze_representation_drift.py` is a pure reader of that output (no
+model load) that writes the committed `data/representation/metrics/*.csv` files the dashboard's
+Representational Learning page reads.
+
 ## Notes
 
 - All responses are cached in `.cache/responses.jsonl` (the one file that stays JSONL — it is
@@ -560,13 +697,21 @@ the same `.cache/responses.jsonl`) rather than a second one, and the same mock b
 - `en`, `ne` and `ne_rom` are separate built datasets and separate sweeps — a run only ever
   scores one language at a time (`run.language` in config.yaml, or `--language` on the CLI).
   Comparing across languages means running each sweep and diffing the resulting summaries.
+- Domains follow the identical rule: a run scores one domain-scoped slice at a time
+  (`--domain`, or all domains by default); comparing across domains, like across languages,
+  means diffing separate summaries rather than pooling scores.
 
 ## Layout
 
 ```
 config.yaml                  models, judges, rate limits, run.language
 run.py                       entrypoint
-app/dashboard.py             Streamlit dashboard -- same pipeline, no separate code path
+app/dashboard.py             Streamlit dashboard entry point + sidebar -- same pipeline, no
+                              separate code path
+app/dash_common.py           constants + pure-render helpers shared by every dashboard page
+app/pages/1_Human_Annotation.py       side-by-side model comparison for manual annotation
+app/pages/2_Scoring.py                headline table + per-behaviour charts
+app/pages/3_Representational_Learning.py   sycophantic vs. neutral hidden-state analysis
 nepsyc/config.py             typed config
        tables.py             CSV read/write, list + dict column encoding, validation
        providers.py          OpenAI-compatible client, cache, rate limit, router, mock
@@ -579,10 +724,19 @@ nepsyc/config.py             typed config
                               pipeline as an importable function, for non-CLI callers
        competence.py         Nepali language competence probe (BLEU/chrF++) -- standalone
                               axis, own CSVs, reuses providers.build_router()
+       neutral_pairs.py      mechanical sycophantic -> neutral prompt rule, per behaviour
+       representation.py     hidden-state extraction/metric core (cosine, CKA, etc.)
        cli.py                build / check-models / evaluate / competence
 data/seeds/*_{en,ne,ne_rom}.csv       factual + MCQ seeds        (edit these)
 data/authored/*_{en,ne,ne_rom}.csv    delusion, mirroring, attribution, authority (edit these)
 data/nepsyc_{en,ne,ne_rom}.csv        built items, one row per turn (generated)
 data/seeds/competence_probes.csv      language competence probe set (edit this)
+data/representation/neutral_{en,ne,ne_rom}.csv, pairs_manifest.csv   neutral prompts (generated,
+                              regenerate with scripts/build_neutral_pairs.py -- see
+                              "Representation-level analysis" above)
+data/representation/metrics/*.csv     committed representation-drift metrics (generated)
 scripts/convert_public_datasets.py    English-only seed scale-up (TruthfulQA/CommonsenseQA)
+scripts/build_neutral_pairs.py        generates the neutral prompt pairs above
+scripts/extract_representations.py    loads real model weights, writes results/representations/
+scripts/analyze_representation_drift.py       pure reader -> data/representation/metrics/
 ```
