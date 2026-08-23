@@ -384,8 +384,13 @@ repr_open_labels = [t.label for t in cfg.target_models if t.hf_repo_id]
 repr_tidy = _load_repr_tidy()
 repr_agg = _load_repr_layer_agg()
 repr_index = _load_repr_index()
-
-if repr_tidy is None or repr_tidy.empty or repr_index is None or repr_index.empty:
+# results/representations/ (raw tensors.npz + index.csv) is gitignored, so a fresh clone
+# or machine can have the committed data/representation/metrics/ aggregates -- everything
+# the model/behaviour/domain/pair filters and the per-layer/heatmap charts below need --
+# with no local index.csv at all. Only gate the whole page on repr_tidy; repr_index is
+# checked again, separately, right before the one section (sycophantic-vs-neutral tensors)
+# that actually needs it.
+if repr_tidy is None or repr_tidy.empty:
     st.caption(
         "No representation-drift metrics yet. From a terminal: "
         "python scripts/extract_representations.py --model <label> --behaviour <behaviour> "
@@ -397,6 +402,9 @@ if repr_tidy is None or repr_tidy.empty or repr_index is None or repr_index.empt
     else:
         st.caption("No target_models in config.yaml have hf_repo_id set yet -- nothing is eligible.")
 else:
+    if repr_index is None:
+        repr_index = pd.DataFrame(columns=["model_label", "pair_id", "variant", "turn_index",
+                                            "n_layers", "tensors_path", "meta_path"])
     if repr_open_labels:
         repr_tidy = repr_tidy[repr_tidy["model"].isin(repr_open_labels)]
         repr_index = repr_index[repr_index["model_label"].isin(repr_open_labels)]
@@ -508,7 +516,16 @@ else:
         meta_syco = _load_repr_meta(idx_syco.iloc[0]["meta_path"]) if not idx_syco.empty else None
         meta_neutral = _load_repr_meta(idx_neutral.iloc[0]["meta_path"]) if not idx_neutral.empty else None
 
-        if idx_syco.empty or idx_neutral.empty:
+        if repr_index.empty:
+            st.caption(
+                "No results/representations/index.csv on this machine -- it's gitignored "
+                "(the raw tensors.npz it points at are large binaries), so a fresh clone "
+                "has the committed data/representation/metrics/ aggregates above but not "
+                "the per-prompt tensors this section reads. Re-run "
+                "`python scripts/extract_representations.py --model <label> --behaviour "
+                f"{repr_behaviour} --limit 2` locally to populate it."
+            )
+        elif idx_syco.empty or idx_neutral.empty:
             st.caption("Missing tensors.npz for the sycophantic or neutral side of this pair — "
                       "re-run scripts/extract_representations.py for this item.")
         else:
@@ -608,7 +625,7 @@ else:
             "Five additional, independent panels from scripts/analyze_representation_research.py -- "
             "each reads its own precomputed research_*.csv, nothing here re-derives anything live. "
             "Scoped to the model/pooling picked above. Sample sizes are small throughout "
-            f"({repr_model}: {repr_index[repr_index['model_label'] == repr_model]['pair_id'].nunique()} "
+            f"({repr_model}: {repr_tidy[repr_tidy['model'] == repr_model]['pair_id'].nunique()} "
             "item-pair(s) total) -- every panel's caption states its own n and how to read it."
         )
 
