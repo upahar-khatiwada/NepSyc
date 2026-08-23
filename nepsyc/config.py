@@ -113,7 +113,11 @@ class Config:
     def provider_settings(self, name: str) -> Dict[str, Any]:
         if name in self.providers:
             p = dict(self.providers[name] or {})
-            
+
+            if p.get("api_type") == "local":
+                # No base_url/api_key -- weights are loaded in-process via transformers.
+                return p
+
             if not p.get("base_url"):
                 raise RuntimeError(
                     f"Provider '{name}' in config.yaml has no `base_url`. Add one, e.g.\n"

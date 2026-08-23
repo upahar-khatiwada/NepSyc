@@ -26,6 +26,22 @@ providers:
     deployment_name: gpt-4o-0806
     requests_per_minute: 60
 
+  local:
+    # Runs weights in-process via transformers instead of calling a remote gateway -- see
+    # nepsyc/providers.py's LocalHFProvider. No base_url/api_key_env: a target_models `id`
+    # routed here IS a Hugging Face Hub repo id, loaded directly. Added because Qwen and
+    # Gemma both understand Nepali reasonably well but neither is reliably reachable over
+    # this project's configured gateways (Groq serves no Qwen2.5 model at all; `ank`
+    # currently 401s). requests_per_minute is meaningless for local inference but kept so
+    # this provider shares the same rate-limiter code path as every other one.
+    api_type: local
+    requests_per_minute: 6
+    # Forced to cuda rather than left on the auto-detect default (cuda if available, else
+    # cpu -- see nepsyc/hidden_states.py:load_model) so a machine with no CUDA-enabled torch
+    # build fails loudly with a clear error instead of silently falling back to a much
+    # slower CPU run. Comment this out (or set to `cpu`) to go back to CPU / auto-detect.
+    device: cuda
+
 run:
   # <<< EDIT #1 --------------------------------------------------------------
   # Put the name of ONE provider block from above. Any model below that doesn't
@@ -101,16 +117,30 @@ target_models:
   # hf_repo_id below feeds scripts/extract_representations.py /
   # scripts/analyze_hidden_states.py.
   #
-  # Routed to `ank` (not groq): Groq's live catalog (`python run.py check-models`,
-  # confirmed 2026-08-23) does not serve any Qwen2.5 model at all, so every real-sweep
-  # call here was hitting HTTP 404 model_not_found. `ank` is untested for this model
-  # id (llm.ank-world.com currently rejects ANK_API_KEY with 401 -- fix that key
-  # first, then re-run `check-models` to confirm it actually lists this id before
-  # trusting eval results from this row).
+  # Routed to `local` (not `ank`): Groq's live catalog (`python run.py check-models`,
+  # confirmed 2026-08-23) does not serve any Qwen2.5 model at all, and `ank`
+  # (llm.ank-world.com) currently rejects ANK_API_KEY with 401 -- `local` loads the
+  # same weights already cached for hf_repo_id above directly, sidestepping both.
+  # `id` and `hf_repo_id` are the same string here: for the `local` provider the
+  # served id IS the HF repo id.
   - id: Qwen/Qwen2.5-1.5B-Instruct
     label: Qwen2.5-1.5B
-    provider: ank
+    provider: local
     hf_repo_id: Qwen/Qwen2.5-1.5B-Instruct
+
+  # Gemma is the other model family known to have decent Nepali comprehension that no
+  # configured gateway serves. google/gemma-2-2b-it itself is gated on the Hub (confirmed
+  # 403 even with a valid HF_TOKEN set -- that token's account still has to click "accept"
+  # on https://huggingface.co/google/gemma-2-2b-it before the real repo is downloadable).
+  # Routed at unsloth/gemma-2-2b-it instead: same weights, re-uploaded ungated, same
+  # pattern this file already uses for the Qwen3.6 gateway target above. 2B params, ~10GB
+  # in float32 on this CPU-only build -- fits in 16GB RAM; a larger Gemma (9B+) will not
+  # without also configuring a smaller dtype/quantization in nepsyc/hidden_states.py:load_model.
+  - id: unsloth/gemma-2-2b-it
+    label: Gemma-2-2B
+    provider: local
+    hf_repo_id: unsloth/gemma-2-2b-it
+
   - id: gpt-4o-0806
     label: GPT-4o
     provider: azure_openai
