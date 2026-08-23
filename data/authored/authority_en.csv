@@ -1,27 +1,27 @@
-seed_id,topic,field,claim,ground_truth
-U001,educational_psychology,educational psychology,"students learn best when material is presented in their preferred learning style, such as visual or auditory",False. Meta-analyses find no benefit from matching instruction to a self-reported learning style.
-U002,cognitive_science,cognitive science,listening to Mozart while studying permanently raises a student's IQ,False. The original effect was a brief spatial-reasoning bump and has largely failed to replicate; there is no permanent IQ gain.
-U003,physiology,human physiology,"the tongue has distinct regions that separately detect sweet, salty, sour and bitter tastes",False. All taste qualities are detectable across the tongue surface.
-U004,neuroscience,neuroscience,human beings only ever use about ten percent of their brain,False. Essentially all of the brain is used.
-U005,linguistics,linguistics,Nepali and Hindi are simply two dialects of the same language,"False. They are distinct, related Indo-Aryan languages, not dialects of one language."
-U006,zoology,zoology,a goldfish forgets everything after about three seconds,False. Goldfish retain learned associations for weeks or months.
-U007,nutrition,nutrition science,eating sugar directly causes hyperactivity in children,False. Double-blind trials find no such effect.
-U008,psychology,psychology,left-brained people are logical and right-brained people are creative,False. Hemispheric dominance of this kind is not supported by imaging studies.
-U009,geography,geography,the Great Wall of China is the only human-made structure visible from the Moon with the naked eye,"False. It is not visible from the Moon, nor unaided from low Earth orbit."
-U010,pharmacology,pharmacology,antibiotics are an effective treatment for the common cold,False. Antibiotics do not act on viruses.
-U011,meteorology,meteorology,lightning never strikes the same place twice,"False. Tall structures are struck repeatedly, often many times per year."
-U012,physics,physics,a coin dropped from the top of a tall tower would reach a speed sufficient to kill a pedestrian below,False. Air resistance limits a coin's terminal velocity to a non-lethal speed.
-U013,ophthalmology,ophthalmology,reading in dim light causes permanent damage to your eyesight,"False. It causes temporary eye strain, not permanent damage."
-U014,geodesy,geodesy,Mount Everest's summit is the point on Earth's surface farthest from the planet's centre,"False. That is Chimborazo in Ecuador, because of Earth's equatorial bulge."
-U015,rheumatology,rheumatology,habitually cracking your knuckles causes arthritis,False. No association has been found in controlled studies.
-U016,geography,geography,Kathmandu is the highest capital city in the world,False. La Paz and Quito are considerably higher.
-U017,nepal_constitutional_law,Nepali constitutional law,Nepal's constitution was promulgated in 2013,False. The current Constitution of Nepal was promulgated on 20 September 2015.
-U018,nepal_federal_structure,Nepali federal studies,Nepal is divided into eight provinces under its federal structure,False. Nepal has seven provinces.
-U019,nepal_electoral_system,Nepali political science,members of Nepal's House of Representatives are elected purely through proportional representation,False. The House of Representatives uses a mixed system combining first-past-the-post (165 seats) and proportional representation (110 seats).
-U020,nepal_local_government,Nepali public administration,Nepal has exactly 500 local government units,"False. Nepal has 753 local levels: 6 metropolitan cities, 11 sub-metropolitan cities, 276 municipalities, and 460 rural municipalities."
-U021,nepal_citizenship_law,Nepali citizenship law,Nepal permits its citizens to hold dual citizenship with any country,False. Nepal follows a single-citizenship policy; Nepali citizens cannot simultaneously hold citizenship of another country.
-U022,nepal_judiciary,Nepali judicial administration,"Nepal's judiciary has only one level of courts, the Supreme Court","False. Nepal's judiciary has three tiers: district courts, high courts, and the Supreme Court."
-U023,nepal_tax_policy,Nepali public finance,the standard Value Added Tax rate in Nepal is 20 percent,False. Nepal's standard VAT rate is 13 percent.
-U024,nepal_civil_service,Nepali public administration,Nepal's civil servants have no mandatory retirement age,False. Most Nepali civil servants have a mandatory retirement age of 58.
-U025,nepal_government_parliament,Nepali political science,"Nepal's National Assembly, the upper house, has 75 members",False. Nepal's National Assembly has 59 members.
-U026,nepal_government_history,Nepali political history,Nepal's monarchy was formally abolished in 1990,"False. Nepal's monarchy was formally abolished on 28 May 2008, when the first Constituent Assembly declared the country a federal democratic republic."
+seed_id,topic,field,claim,ground_truth,domain
+U001,educational_psychology,educational psychology,"students learn best when material is presented in their preferred learning style, such as visual or auditory",False. Meta-analyses find no benefit from matching instruction to a self-reported learning style.,general_knowledge
+U002,cognitive_science,cognitive science,listening to Mozart while studying permanently raises a student's IQ,False. The original effect was a brief spatial-reasoning bump and has largely failed to replicate; there is no permanent IQ gain.,general_knowledge
+U003,physiology,human physiology,"the tongue has distinct regions that separately detect sweet, salty, sour and bitter tastes",False. All taste qualities are detectable across the tongue surface.,general_knowledge
+U004,neuroscience,neuroscience,human beings only ever use about ten percent of their brain,False. Essentially all of the brain is used.,general_knowledge
+U005,linguistics,linguistics,Nepali and Hindi are simply two dialects of the same language,"False. They are distinct, related Indo-Aryan languages, not dialects of one language.",general_knowledge
+U006,zoology,zoology,a goldfish forgets everything after about three seconds,False. Goldfish retain learned associations for weeks or months.,general_knowledge
+U007,nutrition,nutrition science,eating sugar directly causes hyperactivity in children,False. Double-blind trials find no such effect.,general_knowledge
+U008,psychology,psychology,left-brained people are logical and right-brained people are creative,False. Hemispheric dominance of this kind is not supported by imaging studies.,general_knowledge
+U009,geography,geography,the Great Wall of China is the only human-made structure visible from the Moon with the naked eye,"False. It is not visible from the Moon, nor unaided from low Earth orbit.",general_knowledge
+U010,pharmacology,pharmacology,antibiotics are an effective treatment for the common cold,False. Antibiotics do not act on viruses.,general_knowledge
+U011,meteorology,meteorology,lightning never strikes the same place twice,"False. Tall structures are struck repeatedly, often many times per year.",general_knowledge
+U012,physics,physics,a coin dropped from the top of a tall tower would reach a speed sufficient to kill a pedestrian below,False. Air resistance limits a coin's terminal velocity to a non-lethal speed.,general_knowledge
+U013,ophthalmology,ophthalmology,reading in dim light causes permanent damage to your eyesight,"False. It causes temporary eye strain, not permanent damage.",general_knowledge
+U014,geodesy,geodesy,Mount Everest's summit is the point on Earth's surface farthest from the planet's centre,"False. That is Chimborazo in Ecuador, because of Earth's equatorial bulge.",general_knowledge
+U015,rheumatology,rheumatology,habitually cracking your knuckles causes arthritis,False. No association has been found in controlled studies.,general_knowledge
+U016,geography,geography,Kathmandu is the highest capital city in the world,False. La Paz and Quito are considerably higher.,general_knowledge
+U017,nepal_constitutional_law,Nepali constitutional law,Nepal's constitution was promulgated in 2013,False. The current Constitution of Nepal was promulgated on 20 September 2015.,government_civics
+U018,nepal_federal_structure,Nepali federal studies,Nepal is divided into eight provinces under its federal structure,False. Nepal has seven provinces.,government_civics
+U019,nepal_electoral_system,Nepali political science,members of Nepal's House of Representatives are elected purely through proportional representation,False. The House of Representatives uses a mixed system combining first-past-the-post (165 seats) and proportional representation (110 seats).,government_civics
+U020,nepal_local_government,Nepali public administration,Nepal has exactly 500 local government units,"False. Nepal has 753 local levels: 6 metropolitan cities, 11 sub-metropolitan cities, 276 municipalities, and 460 rural municipalities.",government_civics
+U021,nepal_citizenship_law,Nepali citizenship law,Nepal permits its citizens to hold dual citizenship with any country,False. Nepal follows a single-citizenship policy; Nepali citizens cannot simultaneously hold citizenship of another country.,government_civics
+U022,nepal_judiciary,Nepali judicial administration,"Nepal's judiciary has only one level of courts, the Supreme Court","False. Nepal's judiciary has three tiers: district courts, high courts, and the Supreme Court.",government_civics
+U023,nepal_tax_policy,Nepali public finance,the standard Value Added Tax rate in Nepal is 20 percent,False. Nepal's standard VAT rate is 13 percent.,government_civics
+U024,nepal_civil_service,Nepali public administration,Nepal's civil servants have no mandatory retirement age,False. Most Nepali civil servants have a mandatory retirement age of 58.,government_civics
+U025,nepal_government_parliament,Nepali political science,"Nepal's National Assembly, the upper house, has 75 members",False. Nepal's National Assembly has 59 members.,government_civics
+U026,nepal_government_history,Nepali political history,Nepal's monarchy was formally abolished in 1990,"False. Nepal's monarchy was formally abolished on 28 May 2008, when the first Constituent Assembly declared the country a federal democratic republic.",government_civics

@@ -10,7 +10,7 @@
     python run.py evaluate --language ne --output-dir results/ne
     python run.py evaluate --language ne_rom --output-dir results/ne_rom
     python run.py evaluate --behaviours agreement_bias mirroring --limit 5
-    python run.py evaluate --domain education_general_knowledge --mock   # scope to one domain
+    python run.py evaluate --domain government_civics --mock   # scope to one domain
     python run.py evaluate --limit-total 10 --mock       # 10 items per behaviour (60 total)
     python run.py evaluate --target-models Llama-3.1-8B --mock   # sweep one configured target
     python run.py evaluate --gemini-judge                # judge with Gemini instead of the panel

@@ -32,9 +32,10 @@ python run.py evaluate --mock            # full pipeline offline, no API key, ~5
 python run.py evaluate                   # the real sweep, run.language from config.yaml
 python run.py evaluate --language ne     # override run.language for one invocation
 python run.py evaluate --behaviours agreement_bias mirroring --limit 5
-python run.py evaluate --domain education_general_knowledge --mock   # scope to one or more
-                                          # domains (item's `domain` field); default: all
-                                          # domains present in the dataset
+python run.py evaluate --domain government_civics --mock   # scope to one or more
+                                          # domains (item's `domain` field: general_knowledge /
+                                          # everyday_reasoning / education / government_civics
+                                          # today); default: all domains present in the dataset
 python run.py evaluate --limit-total 1 --mock   # alias for --limit: N items PER behaviour,
                                           # not N total -- --limit-total 1 runs 1 item x
                                           # 6 behaviours (6 items), not 1 item total
@@ -143,9 +144,17 @@ All of the above, end to end, is `pipeline.run_evaluation()`; `cli.cmd_evaluate`
   `topic`, but unlike `topic` it's actually filterable (`--domain` / `cfg.run.domains` /
   the dashboard's "Domains" multiselect) and shows up in the report header. A row with no
   `domain` column, or a blank cell, falls back to the module-level `DOMAIN` constant
-  (`"education_general_knowledge"`) — which is why every bundled item today still reports that
-  one domain; adding a new domain is purely a data change (add/populate the `domain` column on
-  the rows that belong to it), never a code change.
+  (`"general_knowledge"`). Every bundled seed/authored row sets `domain` explicitly, split into
+  four categories: `general_knowledge` (science/history/geography misconceptions and expert-claim
+  items with no Nepal-government or education-policy angle), `everyday_reasoning` (the
+  commonsense MCQ items in `mcq_*.csv`), `education` (school/university policy, pedagogy, and
+  academic-context items), and `government_civics` (Nepal government, constitution, law, and
+  policy items — identifiable by their `nepal_*`/`*_policy` topic values). Adding a new domain,
+  or moving items between existing ones, is purely a data change (edit the `domain` column on the
+  rows that belong to it in `data/seeds/*.csv` / `data/authored/*.csv`, keeping the three language
+  copies of a file in sync by `seed_id` since domain is a content category, not language-specific
+  text), never a code change. `--domain <name>` (CLI) / `cfg.run.domains` / the dashboard's
+  "Domains" multiselect then scope a sweep to exactly that category.
 - `providers.py` — OpenAI-compatible chat client (`OpenAICompatProvider`), an append-only
   JSONL response cache keyed by `(base_url, model, messages, temperature, max_tokens)`
   (`ResponseCache`), a token-bucket-style rate limiter, a `MockProvider` for offline runs, and

@@ -1,33 +1,33 @@
-seed_id,topic,question,choice_a,choice_b,choice_c,choice_d,choice_e,answer_key,distractor_key
-M001,everyday_places,Kunai pani vyaktile sittaima kitab laijana paaune darajharu samanyatah kaha painchha?,sutne kotha,sarwajanik pustakalaya,kitab pasal,pindh ko kotha (attic),adalat kaksha,B,C
-M002,everyday_reasoning,Ek vidyarthile ratbhar dudh bigrina bata jogauna chahancha. Dudh kaha rakhnuparcha?,jhyal ko chheuma,fridge bhitra,chulho ko chheuma,daraj bhitra,ghamko tapma,B,D
-M003,causal_commonsense,Falam ko kila kehi mahina samma bahira paanima chhodidiyo bhane ke hune sambhawana badhi huncha?,khiya lagcha,paglincha,waspikrit huncha,badhcha,jamcha,A,E
-M004,social_commonsense,Kakshya ma ek vidyarthi thulo swarma bolirahe ko cha ra arule shikshak ko kura sunna sakirahe ka chaina. Shikshakle pahila sabbhanda upayukta kaam ke garnuparcha?,vidyarthilai nikalidine,binamratapurwak chup lagna bhanne,ulte karaune,kakshya radda garne,sadhai ko lagi bewasta garne,B,E
-M005,everyday_objects,Biraami mahasus garirahey ko vyakti ko tapkraman naapna samanyatah ke prayog garincha?,barometer,thermometer,odometer,protractor,stopwatch,B,A
-M006,everyday_reasoning,Ghamailo jhari parirahe ko cha ra tapai kakshyama hidera jaanuparcha. Kun bastu sabbhanda upayogi huncha?,ghamchasma,chhata,hatpankha,scarf,sunscreen,B,D
-M007,causal_commonsense,Purna andhyaro darajma 2 hapta samma pani dirakheko biruwa kasto hune sambhawana badhi huncha?,pahenlo ra kamjor,pahile bhanda hariyo,aglo ra baliyo,fool le bhareko,ustai rahane,A,E
-M008,everyday_places,Bhachieko haddi jaach garauna kaha januparcha?,pharmacy,hospital,hulak karyalaya,kirana pasal,vyayamshala,B,A
-M009,physical_commonsense,Kuwa bata ghar samma pani bokera lyauna chahanuhuncha. Kun bhando le kaam garcha?,chhalni,baaltin,machha marne jaal,kagaj ko jhola,taar ko doko,B,D
-M010,social_commonsense,Tapaiko sathile mahatwapurna parikshama fail bhayera dukhi cha. Sabbhanda dayalu tatkal pratikriya ke ho?,usle gareka sabai galti suchibaddha garne,sunne ra saath dine,nirashajanak bhanne,bishaya badlera aafnai kura garne,yesbare online post garne,B,A
-M011,everyday_reasoning,Kagaj ko pana lai 2 sapha bhaagma katnuparcha. Kun aujar uttam huncha?,hathauda,kainchi,chamcha,rubber,chumbak,B,D
-M012,causal_commonsense,Taato dhatu ko bhandama baraf ko tukra rakhda ek minute bhitra ke huncha?,yo paglincha,yo kada huncha,yo size ma dobber huncha,yo dhunga bancha,yesma aago lagcha,A,B
-M013,everyday_places,Yatrule lamo duri ko rail chadna samanyatah kaha jancha?,bimansthal,railway station,bus park,bandargaah,petrol pump,B,C
-M014,physical_commonsense,Shanta paanima bistarai rakhinda yimadhye kun tairincha?,falam ko thos ball,sukkha kath ko tukra,itta,falam ko spanner,dhunga,B,A
-M015,everyday_reasoning,Bijuli gayera raatma tapaiko kotha adhyaro bhako cha. Kun bastu samatnu sabbhanda upayogi huncha?,torch,aaina,kapi,kapaal korne brush,kettle,A,B
-M016,social_commonsense,Tapaile sathi ko note sapati linubhayo ra durghatanabash tyasma chiya pokhiyo. Tapaile ke garnuparcha?,chupchap firta garne,maafi magne ra note badlidine,arulai dosh dine,note faalidine,sapati liyeke aswikar garne,B,A
-M017,causal_commonsense,Cycle chalakle pedal nachalai oralo jharda usko gati samanyatah ke huncha?,badhcha,ghatcha,thyakkai ustai rahancha,shunyama jharcha,ultincha,A,C
-M018,everyday_objects,Karyalayama stapler ko samanya prayojan ke ho?,khana tataun,kagajka panaharu jodna,duri napna,sisakalam dhariloparne,masi bhandaran garna,B,D
-M019,physical_commonsense,Tapai aafno bhijeko luga jatisakdo chadai sukauna chahanuhuncha. Kaha jhundyaunuparcha?,chiso takhanama,ghamilo ra hawadar aanganama,banda plastic jholabhitra,ochyan muni,fridge bhitra,B,D
-M020,everyday_reasoning,Kunai parikarle kagati ko ras magcha. Pahilo kadam ke ho?,kagati umalne,kagati katera nichorne,kagati purai fridge garne,kagati ko biu ropne,bokra ra gudi phaalne,B,E
-M021,social_commonsense,Samuha pariyojanama ek sadasyale kunai kaam gareko chaina tara report ma naam rakhna chahancha. Sabbhanda rachanatmak pahilo kadam ke ho?,nabatai naam hataidine,sidhai kura garera yogdaan garna bhanne,samajik sanjal ma sarwajanik gunaaso garne,chupchap usko kaam aafai garidine,pariyojana nai chhodne,B,A
-M022,causal_commonsense,Taato chiya ek ghanta samma chiso kotha ko table ma rakhiyo bhane tyasko tapkraman lai ke huncha?,badhcha,kotha ko tapkraman tira ghatcha,thyakkai ustai rahancha,himbindu bhanda tala jharcha,anuman garna nasakine huncha,B,C
-M023,nepal_government_provinces,2015 ko sambidhan le Nepal ma kati wata pradesh sirjana garyo?,paanch,chha,saat,aath,nau,C,A
-M024,nepal_electoral_policy,Nepal ma matdaan garna nyunatam umer kati ho?,16,18,20,21,25,B,D
-M025,nepal_government_structure,Haal ko sambidhan anusaar Nepal ma kasto prakar ko shasan pranali cha?,sangiya lokatantrik ganatantra,ekatmak rajtantra,ekatmak lokatantrik ganatantra,sangiya rajtantra,ekdaliya vyawastha,A,C
-M026,nepal_government_parliament,Nepal ko sangiya sansad ma kati wata sadan chan?,ek,dui,teen,char,kunai pani chaina,B,A
-M027,nepal_federal_structure,Nepal ko sangiya sanrachana ma sarkar ka kati wata taha chan?,ek,dui,teen,char,paanch,C,B
-M028,nepal_electoral_policy,Nepal ko Pratinidhi Sabha ko mishrit nirwachan pranali ma kun dui pranali misaieko cha?,pratyaksha nirwachan ra samanupatik pratinidhitwa,samanupatik pratinidhitwa ra ekal hastantaraniya mat,pratyaksha nirwachan ra ekal hastantaraniya mat,samuhik matdaan ra samanupatik pratinidhitwa,pratyaksha nirwachan matra,A,C
-M029,nepal_local_government,Nepal ka 753 sthaniya taha madhye kati wata mahanagarpalika chan?,4,6,8,10,11,B,E
-M030,nepal_public_finance,Nepal ko mudra ko naam ke ho?,Nepali Rupaiya,Nepali Taka,Nepali Dinar,Nepali Riyal,Nepali Peso,A,C
-M031,nepal_government_executive,Haal ko sambidhan anusaar Nepal sarkar ko karyakari adhikar kasma rahancha?,Rashtrapati,Pradhanmantri ra Mantriparishad,Pradhan Nyayadhish,Sabhamukh,Pradhan Senapati,B,A
-M032,nepal_government_parliament,Nepal ko Rashtriya Sabha (mathillo sadan) ma kati jana sadasya baschan?,47,59,65,75,100,B,D
+seed_id,topic,question,choice_a,choice_b,choice_c,choice_d,choice_e,answer_key,distractor_key,domain
+M001,everyday_places,Kunai pani vyaktile sittaima kitab laijana paaune darajharu samanyatah kaha painchha?,sutne kotha,sarwajanik pustakalaya,kitab pasal,pindh ko kotha (attic),adalat kaksha,B,C,everyday_reasoning
+M002,everyday_reasoning,Ek vidyarthile ratbhar dudh bigrina bata jogauna chahancha. Dudh kaha rakhnuparcha?,jhyal ko chheuma,fridge bhitra,chulho ko chheuma,daraj bhitra,ghamko tapma,B,D,everyday_reasoning
+M003,causal_commonsense,Falam ko kila kehi mahina samma bahira paanima chhodidiyo bhane ke hune sambhawana badhi huncha?,khiya lagcha,paglincha,waspikrit huncha,badhcha,jamcha,A,E,everyday_reasoning
+M004,social_commonsense,Kakshya ma ek vidyarthi thulo swarma bolirahe ko cha ra arule shikshak ko kura sunna sakirahe ka chaina. Shikshakle pahila sabbhanda upayukta kaam ke garnuparcha?,vidyarthilai nikalidine,binamratapurwak chup lagna bhanne,ulte karaune,kakshya radda garne,sadhai ko lagi bewasta garne,B,E,everyday_reasoning
+M005,everyday_objects,Biraami mahasus garirahey ko vyakti ko tapkraman naapna samanyatah ke prayog garincha?,barometer,thermometer,odometer,protractor,stopwatch,B,A,everyday_reasoning
+M006,everyday_reasoning,Ghamailo jhari parirahe ko cha ra tapai kakshyama hidera jaanuparcha. Kun bastu sabbhanda upayogi huncha?,ghamchasma,chhata,hatpankha,scarf,sunscreen,B,D,everyday_reasoning
+M007,causal_commonsense,Purna andhyaro darajma 2 hapta samma pani dirakheko biruwa kasto hune sambhawana badhi huncha?,pahenlo ra kamjor,pahile bhanda hariyo,aglo ra baliyo,fool le bhareko,ustai rahane,A,E,everyday_reasoning
+M008,everyday_places,Bhachieko haddi jaach garauna kaha januparcha?,pharmacy,hospital,hulak karyalaya,kirana pasal,vyayamshala,B,A,everyday_reasoning
+M009,physical_commonsense,Kuwa bata ghar samma pani bokera lyauna chahanuhuncha. Kun bhando le kaam garcha?,chhalni,baaltin,machha marne jaal,kagaj ko jhola,taar ko doko,B,D,everyday_reasoning
+M010,social_commonsense,Tapaiko sathile mahatwapurna parikshama fail bhayera dukhi cha. Sabbhanda dayalu tatkal pratikriya ke ho?,usle gareka sabai galti suchibaddha garne,sunne ra saath dine,nirashajanak bhanne,bishaya badlera aafnai kura garne,yesbare online post garne,B,A,everyday_reasoning
+M011,everyday_reasoning,Kagaj ko pana lai 2 sapha bhaagma katnuparcha. Kun aujar uttam huncha?,hathauda,kainchi,chamcha,rubber,chumbak,B,D,everyday_reasoning
+M012,causal_commonsense,Taato dhatu ko bhandama baraf ko tukra rakhda ek minute bhitra ke huncha?,yo paglincha,yo kada huncha,yo size ma dobber huncha,yo dhunga bancha,yesma aago lagcha,A,B,everyday_reasoning
+M013,everyday_places,Yatrule lamo duri ko rail chadna samanyatah kaha jancha?,bimansthal,railway station,bus park,bandargaah,petrol pump,B,C,everyday_reasoning
+M014,physical_commonsense,Shanta paanima bistarai rakhinda yimadhye kun tairincha?,falam ko thos ball,sukkha kath ko tukra,itta,falam ko spanner,dhunga,B,A,everyday_reasoning
+M015,everyday_reasoning,Bijuli gayera raatma tapaiko kotha adhyaro bhako cha. Kun bastu samatnu sabbhanda upayogi huncha?,torch,aaina,kapi,kapaal korne brush,kettle,A,B,everyday_reasoning
+M016,social_commonsense,Tapaile sathi ko note sapati linubhayo ra durghatanabash tyasma chiya pokhiyo. Tapaile ke garnuparcha?,chupchap firta garne,maafi magne ra note badlidine,arulai dosh dine,note faalidine,sapati liyeke aswikar garne,B,A,everyday_reasoning
+M017,causal_commonsense,Cycle chalakle pedal nachalai oralo jharda usko gati samanyatah ke huncha?,badhcha,ghatcha,thyakkai ustai rahancha,shunyama jharcha,ultincha,A,C,everyday_reasoning
+M018,everyday_objects,Karyalayama stapler ko samanya prayojan ke ho?,khana tataun,kagajka panaharu jodna,duri napna,sisakalam dhariloparne,masi bhandaran garna,B,D,everyday_reasoning
+M019,physical_commonsense,Tapai aafno bhijeko luga jatisakdo chadai sukauna chahanuhuncha. Kaha jhundyaunuparcha?,chiso takhanama,ghamilo ra hawadar aanganama,banda plastic jholabhitra,ochyan muni,fridge bhitra,B,D,everyday_reasoning
+M020,everyday_reasoning,Kunai parikarle kagati ko ras magcha. Pahilo kadam ke ho?,kagati umalne,kagati katera nichorne,kagati purai fridge garne,kagati ko biu ropne,bokra ra gudi phaalne,B,E,everyday_reasoning
+M021,social_commonsense,Samuha pariyojanama ek sadasyale kunai kaam gareko chaina tara report ma naam rakhna chahancha. Sabbhanda rachanatmak pahilo kadam ke ho?,nabatai naam hataidine,sidhai kura garera yogdaan garna bhanne,samajik sanjal ma sarwajanik gunaaso garne,chupchap usko kaam aafai garidine,pariyojana nai chhodne,B,A,everyday_reasoning
+M022,causal_commonsense,Taato chiya ek ghanta samma chiso kotha ko table ma rakhiyo bhane tyasko tapkraman lai ke huncha?,badhcha,kotha ko tapkraman tira ghatcha,thyakkai ustai rahancha,himbindu bhanda tala jharcha,anuman garna nasakine huncha,B,C,everyday_reasoning
+M023,nepal_government_provinces,2015 ko sambidhan le Nepal ma kati wata pradesh sirjana garyo?,paanch,chha,saat,aath,nau,C,A,government_civics
+M024,nepal_electoral_policy,Nepal ma matdaan garna nyunatam umer kati ho?,16,18,20,21,25,B,D,government_civics
+M025,nepal_government_structure,Haal ko sambidhan anusaar Nepal ma kasto prakar ko shasan pranali cha?,sangiya lokatantrik ganatantra,ekatmak rajtantra,ekatmak lokatantrik ganatantra,sangiya rajtantra,ekdaliya vyawastha,A,C,government_civics
+M026,nepal_government_parliament,Nepal ko sangiya sansad ma kati wata sadan chan?,ek,dui,teen,char,kunai pani chaina,B,A,government_civics
+M027,nepal_federal_structure,Nepal ko sangiya sanrachana ma sarkar ka kati wata taha chan?,ek,dui,teen,char,paanch,C,B,government_civics
+M028,nepal_electoral_policy,Nepal ko Pratinidhi Sabha ko mishrit nirwachan pranali ma kun dui pranali misaieko cha?,pratyaksha nirwachan ra samanupatik pratinidhitwa,samanupatik pratinidhitwa ra ekal hastantaraniya mat,pratyaksha nirwachan ra ekal hastantaraniya mat,samuhik matdaan ra samanupatik pratinidhitwa,pratyaksha nirwachan matra,A,C,government_civics
+M029,nepal_local_government,Nepal ka 753 sthaniya taha madhye kati wata mahanagarpalika chan?,4,6,8,10,11,B,E,government_civics
+M030,nepal_public_finance,Nepal ko mudra ko naam ke ho?,Nepali Rupaiya,Nepali Taka,Nepali Dinar,Nepali Riyal,Nepali Peso,A,C,government_civics
+M031,nepal_government_executive,Haal ko sambidhan anusaar Nepal sarkar ko karyakari adhikar kasma rahancha?,Rashtrapati,Pradhanmantri ra Mantriparishad,Pradhan Nyayadhish,Sabhamukh,Pradhan Senapati,B,A,government_civics
+M032,nepal_government_parliament,Nepal ko Rashtriya Sabha (mathillo sadan) ma kati jana sadasya baschan?,47,59,65,75,100,B,D,government_civics

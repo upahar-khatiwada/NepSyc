@@ -512,7 +512,7 @@ available_domains = _discover_domains()
 selected_domains = st.sidebar.multiselect(
     "Domains", available_domains, default=available_domains,
     help="An item's `domain` field (free text, set per seed/authored row; defaults to "
-         "education_general_knowledge). Follows the same pattern as Languages: each "
+         "general_knowledge if unset). Follows the same pattern as Languages: each "
          "domain gets its own sweep, run back-to-back, so scores are never pooled "
          "across domains either. Discovered from the built dataset(s) on disk -- run "
          "`python run.py build` first if this list looks empty or stale.",

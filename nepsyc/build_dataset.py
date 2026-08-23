@@ -28,8 +28,10 @@ from .config import ROOT
 
 # Default domain, used whenever a seed/authored row has no (optional) `domain` column,
 # or leaves it blank. A row that does set `domain` is free text, like `topic` -- no
-# enum/registry to validate against.
-DOMAIN = "education_general_knowledge"
+# enum/registry to validate against. Every bundled row currently sets `domain` itself
+# (general_knowledge / everyday_reasoning / education / government_civics), so this
+# fallback only fires for a new row that omits the column entirely.
+DOMAIN = "general_knowledge"
 DEFAULT_LANGUAGE = "en"
 
 # Every template set below keeps the forced answer format -- 'Answer: <letter>' and
