@@ -334,6 +334,89 @@ class AzureOpenAIProvider(OpenAICompatProvider):
         raise RuntimeError(f"{self.name}: request failed")
 
 
+class LocalHFProvider:
+    """Runs a model's own weights locally (via `transformers`) instead of calling a remote
+    OpenAI-compatible gateway. For this provider, the `model` id passed to `chat()` IS a
+    Hugging Face Hub repo id (e.g. "Qwen/Qwen2.5-1.5B-Instruct", "google/gemma-2-2b-it") --
+    reuse the same weight-loading path `nepsyc/hidden_states.py` uses for representation
+    extraction, so there is exactly one place that knows how to load a checkpoint locally.
+
+    Exists because some gateways (Groq, at the time this was added) don't serve every model
+    family that understands Nepali well -- Qwen and Gemma both do, but neither was reliably
+    reachable over this project's configured gateways. Loading the checkpoint directly sidesteps
+    that entirely, at the cost of needing the weights (and enough RAM/VRAM) on this machine.
+
+    Models are loaded lazily on first use and kept in memory for the provider's lifetime --
+    `from_pretrained` is a multi-GB, multi-minute operation, so paying that cost per `chat()`
+    call would make a multi-item sweep unusable. Generation itself is serialized with a lock:
+    concurrent `model.generate()` calls against the same in-memory model/device are not a
+    supported use of a single `transformers` model instance, and local inference is
+    compute-bound anyway -- two threads sharing one CPU/GPU do not go faster in parallel.
+    """
+
+    def __init__(
+        self,
+        cache: Optional[ResponseCache] = None,
+        device: Optional[str] = None,
+        name: str = "local",
+    ):
+        self.cache = cache
+        self.device = device
+        self.name = name
+        self._models: Dict[str, tuple] = {}
+        self._load_lock = threading.Lock()
+        self._gen_lock = threading.Lock()
+
+    def list_models(self) -> List[str]:
+        return sorted(self._models.keys())
+
+    def _load(self, model: str):
+        with self._load_lock:
+            if model not in self._models:
+                from nepsyc.hidden_states import load_model
+
+                self._models[model] = load_model(model, device=self.device)
+            return self._models[model]
+
+    def chat(
+        self,
+        model: str,
+        messages: List[Message],
+        temperature: float = 0.0,
+        max_tokens: int = 700,
+        strip_think: bool = True,
+    ) -> str:
+        k = _key(f"local::{self.name}", model, messages, temperature, max_tokens)
+        if self.cache:
+            hit = self.cache.get(k)
+            if hit is not None:
+                return strip_reasoning(hit) if strip_think else hit
+
+        raw = self._generate(model, messages, temperature, max_tokens)
+        if self.cache:
+            self.cache.put(k, raw)
+        return strip_reasoning(raw) if strip_think else raw
+
+    def _generate(self, model: str, messages: List[Message], temperature: float, max_tokens: int) -> str:
+        import torch
+
+        tokenizer, hf_model, device = self._load(model)
+        inp = tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, return_tensors="pt", return_dict=True,
+        ).to(device)
+        input_len = inp["input_ids"].shape[1]
+
+        gen_kwargs = {"max_new_tokens": max_tokens, "do_sample": temperature > 0}
+        if temperature > 0:
+            gen_kwargs["temperature"] = temperature
+
+        with self._gen_lock:
+            with torch.no_grad():
+                generated = hf_model.generate(**inp, **gen_kwargs)
+
+        return tokenizer.decode(generated[0][input_len:], skip_special_tokens=True).strip()
+
+
 class MockProvider:
     """Offline backend so the full pipeline can be smoke-tested without an API key.
 
@@ -389,7 +472,13 @@ def build_provider(cfg, provider_name: str, cache: ResponseCache, mock: bool = F
     if mock:
         return MockProvider(cache=None)
     settings = cfg.provider_settings(provider_name)
-    settings = cfg.provider_settings(provider_name)
+
+    if settings.get("api_type") == "local":
+        return LocalHFProvider(
+            cache=cache,
+            device=settings.get("device"),
+            name=provider_name,
+        )
 
     if settings.get("api_type") == "azure":
         return AzureOpenAIProvider(

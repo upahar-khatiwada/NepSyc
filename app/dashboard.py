@@ -26,7 +26,7 @@ from app.dash_common import (  # noqa: E402
     badges_html as _badges_html, collection_health as _collection_health, color_map,
     conversation_html as _conversation_html, coverage_summary as _coverage, entry as _entry,
     hero_html as _hero_html, judge_cards_html as _judge_cards_html,
-    judge_health as _judge_health, meter_html as _meter, result_label,
+    judge_display_label, judge_health as _judge_health, meter_html as _meter, result_label,
     status_color as _status_color,
 )
 from nepsyc import build_dataset  # noqa: E402
@@ -479,12 +479,23 @@ judge_provider = st.sidebar.selectbox(
 # provider resets the selection to that provider's full option set instead of carrying
 # over model ids that belong to whichever provider was picked before.
 judge_options = _judge_model_options(cfg, info, judge_provider)
-selected_judges = st.sidebar.multiselect(
-    "Judge models", judge_options, default=judge_options, key=f"judge_models_{judge_provider}",
+# Display as "Label · raw id", same pattern as target_option_of above, so a judge model
+# reads consistently with target-model labels (and the Language Competence badges, which
+# render target_models' own `label` field) instead of a raw provider id like
+# "openai/gpt-oss-120b". target_label_of takes priority for any judge id that also happens
+# to be a configured target (exact hand-authored label); judge_display_label derives one
+# for judge-only ids (judges.models has no label field of its own).
+target_label_of = {t["id"]: t["label"] for t in info["targets"]}
+judge_option_of = {
+    f"{target_label_of.get(mid, judge_display_label(mid))}  ·  {mid}": mid for mid in judge_options
+}
+selected_judge_opts = st.sidebar.multiselect(
+    "Judge models", list(judge_option_of), default=list(judge_option_of), key=f"judge_models_{judge_provider}",
     help="The median vote across these models is taken. Options follow the judge "
          "provider above: judges.models from config.yaml when it's the configured "
          "provider, plus any target model already routed there.",
 )
+selected_judges = [judge_option_of[o] for o in selected_judge_opts]
 if not judge_options:
     st.sidebar.caption(
         f"No known model ids for {judge_provider} yet. Add one to target_models with "

@@ -51,6 +51,35 @@ def cmd_build(args):
             print(f"  {k:<26} {v}")
 
 
+def _hf_repo_check(repo_id: str) -> str:
+    """Empty string if `repo_id` resolves on the Hugging Face Hub AND is actually loadable
+    (not gated, or gated with a token already set); otherwise the reason it isn't (typo,
+    gated repo with no accepted license/token, private, network error). Used by
+    check-models for the `local` provider, which has no /v1/models to hit instead.
+
+    `model_info()` succeeds for a gated repo even with no token (repo metadata is public --
+    that's why the plain "does this id exist" check above isn't enough); the `.gated`
+    field is what actually predicts whether `from_pretrained` will hit the same 403 this
+    module hit when Gemma was first wired up here with no HF_TOKEN set."""
+    import os
+
+    try:
+        from huggingface_hub import model_info
+
+        info = model_info(repo_id)
+    except Exception as e:
+        return str(e).splitlines()[0][:200]
+
+    if getattr(info, "gated", False) and not (
+        os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    ):
+        return (
+            f"gated repo ('{info.gated}') and no HF_TOKEN/HUGGING_FACE_HUB_TOKEN set -- "
+            f"accept the license at https://huggingface.co/{repo_id} then set HF_TOKEN in .env"
+        )
+    return ""
+
+
 def cmd_check_models(args):
     """Iterate every provider block under `providers:` in config.yaml, hitting its
     /v1/models live and reporting OK/MISSING for whichever target_models and judges
@@ -82,6 +111,23 @@ def cmd_check_models(args):
     for name in sorted(cfg.providers):
         used = name in in_use
         print(f"\n[{name}]{'' if used else '  (not used by this config)'}")
+
+        if (cfg.providers.get(name) or {}).get("api_type") == "local":
+            # Local provider: there is no /v1/models endpoint to hit, and probing it the
+            # normal way would mean downloading multi-GB weights just to check a name. Check
+            # the Hub repo id resolves instead -- catches typos and gated-repo/missing-token
+            # problems (e.g. Gemma) without loading any weights.
+            print("  local provider (transformers) -- checking Hub repo ids, not loading weights")
+            checked = set(targets_by_provider.get(name, []))
+            if name == judge_provider:
+                checked |= set(cfg.judges.models)
+            for mid in sorted(checked):
+                err = _hf_repo_check(mid)
+                print(f"    {'OK ' if not err else 'MISSING'} {mid}")
+                if err:
+                    problems.append(f"{name}: repo '{mid}' not reachable on the Hub ({err})")
+            continue
+
         try:
             prov = build_provider(cfg, name, cache, mock=False)
             available = set(prov.list_models())
