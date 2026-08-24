@@ -8,26 +8,46 @@ pip install -r requirements.txt
 cp .env.example .env              # add the API key(s) for the provider(s) you use
 
 python run.py build               # seeds -> data/nepsyc_{en,ne,ne_rom}.csv  (154 items each)
+python run.py build --languages ne   # just one split
 python run.py evaluate --mock     # full pipeline, no API key, ~5s, run.language from config.yaml
 python run.py check-models        # what your gateway actually serves today
 python run.py evaluate            # the real sweep
 python run.py evaluate --language ne   # same sweep, Nepali split
 python run.py evaluate --domain government_civics   # scope to one/more domains
-python run.py evaluate --limit-total 10 --mock   # quick smoke test, a handful of items
-python run.py evaluate --target-models Llama-3.1-8B   # sweep a subset of target_models, by id or label
+python run.py evaluate --behaviours agreement_bias mirroring   # scope to one/more behaviours
+python run.py evaluate --limit 5 --mock          # 5 items PER behaviour (6 behaviours -> 30 items)
+python run.py evaluate --limit-total 10 --mock   # same idea, quick smoke test
+python run.py evaluate --limit-total 10 --from-end --mock   # last 10 instead of first 10 --
+                                                  # covers a different slice than the default
+python run.py evaluate --target-models GPT-OSS-20B   # sweep a subset of target_models, by id or label
 python run.py evaluate --gemini-judge             # judge with Gemini instead of the open-weight panel
 
 python run.py competence --mock                   # Nepali language competence probe (BLEU/chrF++)
-python run.py competence --target-models Llama-3.1-8B
+python run.py competence --target-models GPT-OSS-20B
 
 streamlit run app/dashboard.py    # dashboard: pick target/judge models, run, see charts
+
+python -m unittest tests.test_competence -v      # the one test suite in this repo (stdlib
+                                                  # unittest, no pytest) -- covers competence.py's
+                                                  # scoring/threshold logic + a mock end-to-end run
 
 # Representation-level analysis (sycophantic vs. neutral hidden states) -- see
 # "Representation-level analysis" below; a third standalone axis, own commands, own outputs.
 python scripts/build_neutral_pairs.py             # data/nepsyc_* -> data/representation/neutral_*.csv
 python scripts/validate_neutral_pairs.py          # checks the pairing before anything reads it
 python scripts/extract_representations.py --dry-run   # preview model x pair x variant counts
+python scripts/extract_representations.py --model Qwen2.5-1.5B --limit 2 --attn-layers none
+                                                   # a real (local) extraction -- only target_models
+                                                   # with hf_repo_id set are eligible
+python scripts/analyze_representation_drift.py        # results/representations/ -> data/representation/metrics/
+python scripts/analyze_representation_research.py     # optional PCA/direction/CKA/RuP-drift panels
+python scripts/make_representation_report_figures.py  # static PNGs for docs/REPRESENTATION_LEARNING_REPORT.md
 ```
+
+There is no linter or CI config in this repo. The sycophancy pipeline itself has no automated
+test suite — correctness there is checked by running `--mock` and reading
+`results/nepsyc_summary_latest.txt`. The one module with real tests is the language competence
+probe (`nepsyc/competence.py` / `tests/test_competence.py`), run with the `unittest` command above.
 
 ## Dashboard
 
@@ -68,6 +88,28 @@ A separate **Language Competence** section (own sidebar button, own "Load last c
 results" button) runs the Nepali translation/comprehension probe described below — see
 "Language competence probe" for the metrics, thresholds and CSVs it produces.
 
+### Filtering in the dashboard
+
+Every filter lives in the sidebar, top to bottom, and all of them narrow the *next* click of
+**Run benchmark** — nothing here rescopes results you've already run:
+
+| control | narrows | notes |
+| --- | --- | --- |
+| **Target models** | which models are evaluated | from `target_models` in `config.yaml`; shown as `label · provider` |
+| **Judge provider** | where judge calls are sent | a single provider per sweep; switching it resets the Judge models list below to that provider's own option set |
+| **Judge models** | which models score replies | `judges.models` when the provider above matches `judges.provider`, else any target already routed to that provider; a warning appears if a model is selected as both a target and a judge |
+| **Languages** | which language split(s) run | `en` / `ne` / `ne_rom`; picking more than one runs a separate sweep per language, never pooled |
+| **Domains** | which `domain`-tagged item(s) run | discovered live from whatever `domain` values exist in the built `data/nepsyc_*.csv` files — run `python run.py build` first if the list looks empty or stale; see "Domains" below for what a domain is and how to add one |
+| **Behaviours** | which of the six behaviours run | unchecking one drops every item for it from the sweep |
+| **Items per behaviour** | how many items per behaviour | same as `--limit`/`--limit-total` on the CLI |
+| **Take last N instead of first N** | which slice of items | off = first N (CLI default), on = last N (CLI `--from-end`) — lets a small sweep cover a slice a prior small sweep didn't |
+| **Mock mode** | whether real API calls happen | on by default, so the dashboard runs with no key; turn off for a real (costed) sweep |
+
+Selecting more than one Language and/or Domain runs one sweep per `(language, domain)`
+combination — a **Viewing** selector then appears on the main page, Scoring page, Prompt
+inspector, and Human Annotation page so you can switch between combos; scores are never
+averaged across a language or domain boundary, on the dashboard any more than on the CLI.
+
 ```bash
 pip install -r requirements.txt   # streamlit, plotly, pandas ship in here already
 streamlit run app/dashboard.py
@@ -81,7 +123,7 @@ from nepsyc.config import load_config
 from nepsyc.pipeline import run_evaluation, list_configured_models
 
 cfg = load_config()
-cfg.run.target_model_ids = ["Llama-3.1-8B"]   # subset of target_models; empty = all
+cfg.run.target_model_ids = ["GPT-OSS-20B"]    # subset of target_models; empty = all
 result = run_evaluation(cfg, mock=True, progress=lambda frac, msg: print(frac, msg))
 result["scores"], result["summary"], result["report_text"], result["paths"]
 
@@ -477,8 +519,8 @@ python run.py evaluate --human data/human_annotations.csv
 
 ```
 item_id,model,annotator,score
-AGS-F001,Llama-3.3-70B,a1,4
-AGS-F001,Llama-3.3-70B,a2,5
+AGS-F001,GPT-OSS-20B,a1,4
+AGS-F001,GPT-OSS-20B,a2,5
 ```
 
 One row per (item, model, annotator). See `data/human_annotations.example.csv`. A blank
@@ -491,10 +533,21 @@ items each.
 
 ## Models
 
-`config.yaml` lists Groq model ids by default. As of **2026-07-10** Groq serves
-llama-3.1-8b-instant, llama-3.3-70b-versatile, openai/gpt-oss-20b, openai/gpt-oss-120b
-(production) plus qwen/qwen3-32b, qwen/qwen3.6-27b, meta-llama/llama-4-scout-17b-16e-instruct
-(preview). Groq announced deprecation of the two Llama 3.x models and qwen3-32b on 2026-06-17.
+`config.yaml` lists Groq model ids by default. As of **2026-08-24** (`python run.py
+check-models` against Groq's live `/v1/models`) the deprecation flagged in earlier versions
+of this doc has completed: both llama-3.x chat models and qwen/qwen3-32b are gone from the
+catalog entirely, not just deprecated. The chat-capable models Groq still serves are
+openai/gpt-oss-20b, openai/gpt-oss-120b, and qwen/qwen3.6-27b (the rest of the current
+catalog — `openai/gpt-oss-safeguard-20b`, `allam-2-7b`, `groq/compound`, `groq/compound-mini`,
+`meta-llama/llama-prompt-guard-2-*`, `whisper-*`, `canopylabs/*` — is moderation, agentic-tool,
+audio or non-chat). `config.yaml` targets gpt-oss-20b and judges with `openai/gpt-oss-120b` +
+`qwen/qwen3.6-27b`, so the default `evaluate` sweep never has a target judging its own replies.
+`openai/gpt-oss-120b` is *also* configured as a `target_models` entry (added purely so it can be
+run through `python run.py competence`, which has no self-grading concern — it scores
+BLEU/chrF++ against reference text, not a judge panel). That dual role is fine for competence,
+but if you select `GPT-OSS-120B` as a target in an `evaluate` sweep, the dashboard's sidebar will
+warn that it's also a judge — pick a different judge provider/model for that sweep, or drop it
+from `judges.models`, if you want a clean separation.
 
 **Groq does not host Gemma or DeepSeek.** Both are named in your proposal. To include them,
 uncomment the `openrouter` provider block in `config.yaml` and set `provider: openrouter`

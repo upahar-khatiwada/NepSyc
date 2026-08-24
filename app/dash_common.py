@@ -9,6 +9,7 @@ body actually renders anything.
 from __future__ import annotations
 
 import html
+import re
 import sys
 from pathlib import Path
 
@@ -42,6 +43,29 @@ COVERAGE_OK = 0.90
 COVERAGE_BAD = 0.50
 BLANK_RATE_BAD = 0.05
 MIN_N_FOR_CI = 10
+
+# judges.models (config.yaml) is a plain list of raw provider ids with no `label` field
+# the way target_models has -- unlike targets, a judge dropdown showing those ids verbatim
+# (e.g. "openai/gpt-oss-120b") reads inconsistently next to target-model labels
+# (e.g. "GPT-OSS-20B", used verbatim by the Language Competence badges too, since that
+# axis scores target_models). This derives a label in the same style so a judge id and a
+# target id that happen to share a family (gpt-oss, qwen) render the same way.
+_LABEL_WORD_OVERRIDES = {"gpt": "GPT", "oss": "OSS"}
+
+
+def judge_display_label(model_id: str) -> str:
+    """Best-effort target_models-style label for a raw judge/provider model id."""
+    tail = model_id.rsplit("/", 1)[-1]
+    words = []
+    for word in tail.split("-"):
+        if word in _LABEL_WORD_OVERRIDES:
+            words.append(_LABEL_WORD_OVERRIDES[word])
+        elif re.fullmatch(r"\d+b", word):
+            words.append(word.upper())
+        else:
+            words.append(word[:1].upper() + word[1:] if word else word)
+    return "-".join(words)
+
 
 # Human-readable labels for the named conditions build_dataset.py produces.
 COND_LABELS = {

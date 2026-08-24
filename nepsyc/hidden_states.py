@@ -38,8 +38,16 @@ def load_model(hf_repo_id: str, device: Optional[str] = None, attn_implementatio
     when a caller needs `output_attentions=True` to actually return weights -- `sdpa` (and
     `flash_attention_2`) silently return `None` for attentions instead of raising, per
     transformers' own warning, so this must be set at load time for representation.py's
-    attention capture to work at all."""
+    attention capture to work at all.
+
+    Some hf_repo_ids (e.g. danfe-ai/danfe-nepali-2b) are PEFT/LoRA adapter repos, not a
+    standalone checkpoint -- they ship `adapter_config.json` + adapter weights but no
+    `config.json`, so `AutoModelForCausalLM.from_pretrained` on the repo directly fails with
+    "Unrecognized model ... Should have a `model_type` key". Detected up front (rather than by
+    catching that error) via `file_exists`, then the base model named in `adapter_config.json`
+    is loaded and the adapter applied on top."""
     import torch
+    from huggingface_hub import file_exists
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,12 +55,20 @@ def load_model(hf_repo_id: str, device: Optional[str] = None, attn_implementatio
     kwargs = {}
     if attn_implementation:
         kwargs["attn_implementation"] = attn_implementation
-    model = AutoModelForCausalLM.from_pretrained(
-        hf_repo_id,
-        dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-        device_map=device,
-        **kwargs,
-    )
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+
+    if file_exists(hf_repo_id, "adapter_config.json"):
+        from peft import PeftConfig, PeftModel
+
+        peft_cfg = PeftConfig.from_pretrained(hf_repo_id)
+        base = AutoModelForCausalLM.from_pretrained(
+            peft_cfg.base_model_name_or_path, dtype=dtype, device_map=device, **kwargs,
+        )
+        model = PeftModel.from_pretrained(base, hf_repo_id)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_repo_id, dtype=dtype, device_map=device, **kwargs,
+        )
     model.eval()
     return tokenizer, model, device
 

@@ -36,10 +36,9 @@ providers:
     # this provider shares the same rate-limiter code path as every other one.
     api_type: local
     requests_per_minute: 6
-    # Forced to cuda rather than left on the auto-detect default (cuda if available, else
-    # cpu -- see nepsyc/hidden_states.py:load_model) so a machine with no CUDA-enabled torch
-    # build fails loudly with a clear error instead of silently falling back to a much
-    # slower CPU run. Comment this out (or set to `cpu`) to go back to CPU / auto-detect.
+    # Forced to cpu: this machine's torch build has no CUDA support (float32, CPU-only --
+    # see nepsyc/hidden_states.py:load_model for the dtype/device_map this feeds). Set to
+    # `cuda` instead on a machine with a CUDA-enabled torch build, for GPU inference.
     device: cuda
 
 run:
@@ -104,11 +103,23 @@ target_models:
   # Groq dropped every llama-3.x chat model from its catalog (confirmed live
   # against /v1/models on 2026-08-22) -- llama-3.3-70b-versatile and
   # llama-3.1-8b-instant are both gone, so they're removed rather than kept
-  # commented out. openai/gpt-oss-20b is the one Groq target still served.
+  # commented out.
   - id: openai/gpt-oss-20b
     label: GPT-OSS-20B
     provider: groq
     hf_repo_id: openai/gpt-oss-20b # public checkpoint, same id as the Groq-served model
+
+  # Added as a target purely so it can be run through `python run.py competence` (and the
+  # dashboard's Language Competence page) -- previously only configured under `judges:`
+  # above. Competence has no self-grading concern (it scores BLEU/chrF++ against reference
+  # text, no judge panel involved), so double-duty as both a competence target and a
+  # sycophancy judge is fine; it only becomes the self-grading case judges.py already warns
+  # about (dashboard "is both a target and a judge") if it's also left selected as an
+  # *evaluate* target in the same sweep as its own judge role.
+  - id: openai/gpt-oss-120b
+    label: GPT-OSS-120B
+    provider: groq
+    hf_repo_id: openai/gpt-oss-120b # public checkpoint, same id as the Groq-served model
 
   # Added because GPT-OSS-20B (~80GB in the float32 this machine's CPU-only torch
   # build needs) does not fit in this machine's 16GB RAM, so it can't be
@@ -141,6 +152,61 @@ target_models:
     provider: local
     hf_repo_id: unsloth/gemma-2-2b-it
 
+  # Higher-param Qwen bump, staying unquantized: this machine's RTX 4060 Laptop GPU has
+  # 8GB VRAM (confirmed via scripts/check_cuda.py + nvidia-smi -- device: cuda above IS
+  # usable now, unlike when the CPU-only comment on that setting was written). bf16 weight
+  # footprint is ~2 bytes/param, so 3B (~6GB) is the largest size that reliably leaves room
+  # for KV cache/activations on an 8GB card with no quantization; 4B-class models (Gemma-3-4B,
+  # Qwen3-4B) run ~8GB in weights alone and are too tight to add here without also wiring up
+  # bitsandbytes 4-bit loading in nepsyc/hidden_states.py:load_model, which this project isn't
+  # doing yet.
+  - id: Qwen/Qwen2.5-3B-Instruct
+    label: Qwen2.5-3B
+    provider: local
+    hf_repo_id: Qwen/Qwen2.5-3B-Instruct
+
+  # Requested despite the tight fit noted above: 4B params * 2 bytes (bf16) = ~7.45GB in
+  # weights alone, against an 8GB card with only ~6.6GB free at last check (scripts/check_cuda.py
+  # + nvidia-smi) once other processes' VRAM use is subtracted. May OOM, especially on the
+  # longer multi-turn `pressure` condition (3 turns) or a high max_tokens generation -- if it
+  # does, the unquantized options are Qwen2.5-3B above or dropping to Gemma-3-1b-it; the
+  # quantized option (not wired up in this repo) is bitsandbytes 4-bit loading in
+  # nepsyc/hidden_states.py:load_model. google/gemma-3-4b-it itself is gated on the Hub
+  # (manual approval) -- routed at the unsloth re-upload instead, same pattern as Gemma-2-2B.
+  - id: unsloth/gemma-3-4b-it
+    label: Gemma-3-4B
+    provider: local
+    hf_repo_id: unsloth/gemma-3-4b-it
+
+  # Nepal-specific instruction-tuned model (not just multilingual-with-Nepali-included like
+  # Qwen/Gemma above): SmolLM2-1.7B-Instruct fine-tuned via QLoRA on Nepali Wikipedia + curated
+  # Nepal knowledge, covering Nepali plus several Sudurpashchim regional languages (Maithili,
+  # Doteli, Bajhangi, Achhami, ...). ~1.7B params, Apache 2.0, trivial fit on this hardware.
+  - id: danfe-ai/danfe-nepali-2b
+    label: Danfe-Nepali-2B
+    provider: local
+    hf_repo_id: danfe-ai/danfe-nepali-2b
+
+  # DeepSeek: the dense R1-distill lineup only ships 1.5B, 7B, 8B, 14B, 32B, 70B (no 3-4B
+  # tier), and 7B is ~15.2GB in bf16 weights alone -- nearly double this 8GB card's total
+  # capacity, not just tight like Gemma-3-4B above, so it was not added. 1.5B (~3.55GB) is
+  # the largest dense DeepSeek checkpoint that actually fits; same size class as the existing
+  # Qwen2.5-1.5B entry, but a different (reasoning-distilled) model, not a param-count bump.
+  # strip_think left at its default (True, config.py) since R1-distills emit <think> blocks
+  # the same way Qwen3.6/GPT-OSS-20B above do.
+  - id: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+    label: DeepSeek-R1-Distill-1.5B
+    provider: local
+    hf_repo_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+
+  # Phi-4-mini-instruct: 3.8B, text-only (no vision tower unlike Gemma-3-4B), ~7.67GB in bf16
+  # weights -- same tight-fit risk tier as Gemma-3-4B above (~6.6GB free on this 8GB card at
+  # last check), may OOM on load or on the longer multi-turn `pressure` condition.
+  - id: microsoft/Phi-4-mini-instruct
+    label: Phi-4-mini
+    provider: local
+    hf_repo_id: microsoft/Phi-4-mini-instruct
+
   - id: gpt-4o-0806
     label: GPT-4o
     provider: azure_openai
@@ -155,9 +221,14 @@ target_models:
 #  grading Qwen -- the one result a reviewer will refuse to accept.
 # ---------------------------------------------------------------------------
 judges:
+  # llama-3.3-70b-versatile removed: `python run.py check-models` (confirmed live against
+  # Groq's /v1/models on 2026-08-24) shows it MISSING, same catalog drop noted for the
+  # llama target_models entries above. Groq's current chat-capable catalog beyond the two
+  # remaining models below is openai/gpt-oss-20b (already a target, so excluded here to
+  # avoid a judge grading its own target's replies) and openai/gpt-oss-safeguard-20b /
+  # allam-2-7b / groq/compound(-mini) (moderation/agentic-tool models, not general judges).
   models:
     - openai/gpt-oss-120b
-    - llama-3.3-70b-versatile
     - qwen/qwen3.6-27b
 
   # <<< EDIT #2 --------------------------------------------------------------
