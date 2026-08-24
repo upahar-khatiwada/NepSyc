@@ -51,7 +51,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -171,6 +171,216 @@ def _dry_run(cfg, selected: List[ModelSpec], languages: List[str], behaviours: O
     print(f"\nTotal turns across all selected models/languages: {total}")
 
 
+def run_extraction(
+    selected: List[ModelSpec],
+    *,
+    languages: List[str],
+    behaviours: Optional[List[str]] = None,
+    limit: int = 0,
+    items_by_language: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    attn_layers: str = "last",
+    max_new_tokens: int = 120,
+    max_input_tokens: int = 4096,
+    device: Optional[str] = None,
+    progress: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Any]:
+    """Does the actual extraction for `selected` models -- the callable core behind `main()`,
+    so a caller other than the CLI (the dashboard's auto-extraction, see app/dashboard.py) can
+    run this in-process and get the run's metadata back, the same split pipeline.py already
+    uses for run_evaluation vs. cli.cmd_evaluate.
+
+    `items_by_language`, if given, pins extraction to an exact pre-selected item list per
+    language (item dicts shaped like `nepsyc.build_dataset.load()`'s output -- e.g. the literal
+    `items` pipeline.run_evaluation() just scored) instead of reloading data/nepsyc_<language>.csv
+    and reselecting with `behaviours`/`limit`. This is how the dashboard keeps representation
+    extraction covering exactly the prompts a sweep benchmarked rather than an independently
+    chosen slice; `behaviours`/`limit` are ignored for any language present in this dict (a
+    language missing from it, or the dict being None entirely, still falls back to the
+    reload-and-reselect path below -- the CLI's `main()` never passes this, so it always takes
+    that path).
+
+    Unlike `main()`, one model's load/extraction failure (OOM, a checkpoint too large for this
+    machine, a network error fetching the weights, ...) does not abort the remaining models --
+    it's recorded in the returned `model_errors` list and the loop moves on. This matters most
+    for a caller iterating over several open-weight models unattended, where a single
+    known-oversized checkpoint (e.g. GPT-OSS-20B on a 16GB machine, see config.yaml's own
+    comment on that entry) shouldn't take the whole run down with it. The CLI's `main()` still
+    surfaces those errors (non-zero exit via the printed FAILED lines), just doesn't stop early.
+
+    `progress`, if given, is called with a short human-readable string at coarse milestones
+    (model load start, per-language item count, per-model failure) -- independent of the
+    print()s below, which always fire for terminal use regardless of whether `progress` is set.
+    """
+    from nepsyc.representation import _resolve_attn_layers, load_model  # torch-touching imports, kept lazy
+
+    def _tick(msg: str) -> None:
+        if progress is not None:
+            progress(msg)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    index_df = pd.read_csv(INDEX_PATH) if INDEX_PATH.exists() else pd.DataFrame(columns=INDEX_COLUMNS)
+
+    run_started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    run_id = run_started.replace(":", "").replace("+00:00", "Z")
+    run_meta: Dict[str, Any] = {
+        "run_id": run_id, "started_at": run_started,
+        "args": {"models": [m.label for m in selected], "languages": languages, "behaviours": behaviours,
+                 "limit": limit, "attn_layers": attn_layers, "max_new_tokens": max_new_tokens,
+                 "max_input_tokens": max_input_tokens, "device": device},
+        "pooling": POOLING_DESCRIPTION,
+        "attn_layer_offset_note": "attn layer index i is the i-th transformer block's output "
+                                   "(0-based); hidden_states/last_token/mean_pooled layer index "
+                                   "is offset by +1 relative to that (index 0 = embedding layer).",
+        "models": [], "skipped": [], "model_errors": [],
+    }
+
+    for spec in selected:
+        # attn_layers isn't known until num_hidden_layers is (needs the model config), but
+        # whether ANY attention is wanted at all (spec != "none") is known from the raw CLI
+        # arg alone, and attn_implementation="eager" has to be picked at load time -- sdpa
+        # (the transformers default) silently returns None for attentions otherwise.
+        want_attn = (attn_layers or "last").strip().lower() != "none"
+        print(f"[{spec.label}] loading {spec.hf_repo_id} ...")
+        _tick(f"[{spec.label}] loading {spec.hf_repo_id} ...")
+        model = None
+        try:
+            tokenizer, model, resolved_device = load_model(
+                spec.hf_repo_id, device, attn_implementation="eager" if want_attn else None,
+            )
+            import torch  # noqa: E402 (already loaded by load_model; safe to import here for versions/dtype)
+            import transformers
+
+            num_hidden_layers = getattr(model.config, "num_hidden_layers", None)
+            if num_hidden_layers is None:
+                num_hidden_layers = len(model(**tokenizer("x", return_tensors="pt").to(resolved_device),
+                                               output_hidden_states=True).hidden_states) - 1
+            resolved_attn_layers = _resolve_attn_layers(attn_layers, num_hidden_layers)
+            dtype = str(next(model.parameters()).dtype)
+
+            model_meta = {
+                "label": spec.label, "hf_repo_id": spec.hf_repo_id, "num_hidden_layers": num_hidden_layers,
+                "attn_layers": resolved_attn_layers, "dtype": dtype, "device": resolved_device,
+                "tokenizer_class": type(tokenizer).__name__, "vocab_size": tokenizer.vocab_size,
+                "transformers_version": transformers.__version__, "torch_version": torch.__version__,
+            }
+            run_meta["models"].append(model_meta)
+
+            for language in languages:
+                if items_by_language is not None:
+                    items = items_by_language.get(language, [])
+                    if not items:
+                        print(f"  [{language}] no pre-selected items supplied -- skipping.")
+                        continue
+                else:
+                    dataset_path = ROOT / "data" / f"nepsyc_{language}.csv"
+                    if not dataset_path.exists():
+                        print(f"  [{language}] {dataset_path} missing -- run `python run.py build` first. Skipping.")
+                        continue
+                    items = _select_items(load(dataset_path), behaviours, limit)
+                raw_index = load_raw_index(language)
+                print(f"  [{language}] {len(items)} item(s) selected")
+                _tick(f"[{spec.label}] {language}: {len(items)} item(s) selected")
+
+                for it in items:
+                    pair_id, behaviour, domain = it["item_id"], it["behaviour"], it["domain"]
+                    for variant, cond_name, turns, is_proxy in _item_variants(it, language, raw_index):
+                        try:
+                            turn_reps, resolved_device = run_condition_full(
+                                tokenizer, model, resolved_device, cond_name, turns,
+                                max_new_tokens, resolved_attn_layers, max_input_tokens,
+                            )
+                        except RuntimeError as e:
+                            print(f"    SKIPPED {pair_id}/{variant}: {e}", file=sys.stderr)
+                            run_meta["skipped"].append({"model": spec.label, "language": language,
+                                                         "pair_id": pair_id, "variant": variant, "error": str(e)})
+                            continue
+
+                        out_dir = _pair_dir(spec.label, behaviour, domain, language, pair_id, variant)
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        tensors: Dict[str, np.ndarray] = {}
+                        meta_turns = []
+                        generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+                        for tr in turn_reps:
+                            t = tr.turn_index
+                            for L, vec in enumerate(tr.last_token):
+                                tensors[f"t{t}_L{L}_last_token"] = vec.astype(np.float16)
+                            for L, vec in enumerate(tr.mean_pooled):
+                                tensors[f"t{t}_L{L}_mean_pooled"] = vec.astype(np.float16)
+                            for L, mat in tr.attentions.items():
+                                tensors[f"t{t}_L{L}_attn"] = mat.astype(np.float16)
+                            conf = confidence_logit_metrics(tokenizer, tr.next_token_logits, it["grading"]) \
+                                if tr.next_token_logits is not None else None
+                            if tr.next_token_logits is not None:
+                                tensors[f"t{t}_logits_next_token"] = tr.next_token_logits.astype(np.float16)
+
+                            meta_turns.append({
+                                "turn_index": t, "prompt": tr.prompt_text, "reply": tr.reply,
+                                "n_layers": tr.n_layers, "hidden_size": tr.hidden_size,
+                                "vocab_size": tr.vocab_size, "truncated": tr.truncated,
+                                "device_used": tr.device_used, "confidence": conf,
+                            })
+
+                            index_df = index_df[~(
+                                (index_df["model_label"] == spec.label) & (index_df["language"] == language)
+                                & (index_df["pair_id"] == pair_id) & (index_df["variant"] == variant)
+                                & (index_df["turn_index"] == t)
+                            )]
+                            index_df = pd.concat([index_df, pd.DataFrame([{
+                                "model_label": spec.label, "hf_repo_id": spec.hf_repo_id,
+                                "behaviour": behaviour, "metric": it["metric"], "domain": domain,
+                                "language": language, "pair_id": pair_id, "seed_id": it["seed_id"],
+                                "topic": it.get("topic"), "variant": variant, "is_neutral_proxy": is_proxy,
+                                "condition": cond_name, "turn_index": t, "n_turns": len(turn_reps),
+                                "n_layers": tr.n_layers, "hidden_size": tr.hidden_size,
+                                "vocab_size": tr.vocab_size, "attn_layers": ",".join(map(str, resolved_attn_layers)),
+                                "truncated": tr.truncated, "device_used": tr.device_used,
+                                "tensors_path": str((out_dir / "tensors.npz").relative_to(ROOT).as_posix()),
+                                "meta_path": str((out_dir / "meta.json").relative_to(ROOT).as_posix()),
+                                "p_correct": conf["p_correct"] if conf else None,
+                                "p_incorrect": conf["p_incorrect"] if conf else None,
+                                "logit_correct": conf["logit_correct"] if conf else None,
+                                "logit_incorrect": conf["logit_incorrect"] if conf else None,
+                                "logit_preference_shift": conf["logit_preference_shift"] if conf else None,
+                                "correct_token": conf["correct_token"] if conf else None,
+                                "incorrect_token": conf["incorrect_token"] if conf else None,
+                                "prompt_preview": tr.prompt_text[:80],
+                                "generated_at": generated_at,
+                            }])], ignore_index=True)
+
+                        np.savez_compressed(out_dir / "tensors.npz", **tensors)
+                        (out_dir / "meta.json").write_text(
+                            json.dumps({"condition": cond_name, "is_neutral_proxy": is_proxy, "turns": meta_turns},
+                                       ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        print(f"    {pair_id}/{variant}: {len(turn_reps)} turn(s), "
+                              f"{len(tensors)} array(s) -> {out_dir.relative_to(ROOT)}")
+
+                    index_df.to_csv(INDEX_PATH, index=False)
+                _tick(f"[{spec.label}] {language}: done")
+        except Exception as e:  # noqa: BLE001 -- one model's failure shouldn't abort the rest
+            print(f"[{spec.label}] FAILED: {e}", file=sys.stderr)
+            run_meta["model_errors"].append({"model": spec.label, "hf_repo_id": spec.hf_repo_id, "error": str(e)})
+            _tick(f"[{spec.label}] FAILED: {e}")
+        finally:
+            if model is not None:
+                del model
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+
+    run_meta["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    (RUNS_DIR / f"{run_id}.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\nWrote {INDEX_PATH.relative_to(ROOT)} and runs/{run_id}.json")
+    return run_meta
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", nargs="*", dest="models", help="Target model labels/ids (default: every "
@@ -193,150 +403,11 @@ def main() -> None:
         _dry_run(cfg, selected, args.language, args.behaviour, args.limit)
         return
 
-    from nepsyc.representation import _resolve_attn_layers, load_model  # torch-touching imports, kept lazy
-
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    index_df = pd.read_csv(INDEX_PATH) if INDEX_PATH.exists() else pd.DataFrame(columns=INDEX_COLUMNS)
-
-    run_started = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    run_id = run_started.replace(":", "").replace("+00:00", "Z")
-    run_meta: Dict[str, Any] = {
-        "run_id": run_id, "started_at": run_started, "args": vars(args),
-        "pooling": POOLING_DESCRIPTION,
-        "attn_layer_offset_note": "attn layer index i is the i-th transformer block's output "
-                                   "(0-based); hidden_states/last_token/mean_pooled layer index "
-                                   "is offset by +1 relative to that (index 0 = embedding layer).",
-        "models": [], "skipped": [],
-    }
-
-    for spec in selected:
-        # attn_layers isn't known until num_hidden_layers is (needs the model config), but
-        # whether ANY attention is wanted at all (spec != "none") is known from the raw CLI
-        # arg alone, and attn_implementation="eager" has to be picked at load time -- sdpa
-        # (the transformers default) silently returns None for attentions otherwise.
-        want_attn = (args.attn_layers or "last").strip().lower() != "none"
-        print(f"[{spec.label}] loading {spec.hf_repo_id} ...")
-        tokenizer, model, device = load_model(
-            spec.hf_repo_id, args.device, attn_implementation="eager" if want_attn else None,
-        )
-        import torch  # noqa: E402 (already loaded by load_model; safe to import here for versions/dtype)
-        import transformers
-
-        num_hidden_layers = getattr(model.config, "num_hidden_layers", None)
-        if num_hidden_layers is None:
-            num_hidden_layers = len(model(**tokenizer("x", return_tensors="pt").to(device),
-                                           output_hidden_states=True).hidden_states) - 1
-        attn_layers = _resolve_attn_layers(args.attn_layers, num_hidden_layers)
-        dtype = str(next(model.parameters()).dtype)
-
-        model_meta = {
-            "label": spec.label, "hf_repo_id": spec.hf_repo_id, "num_hidden_layers": num_hidden_layers,
-            "attn_layers": attn_layers, "dtype": dtype, "device": device,
-            "tokenizer_class": type(tokenizer).__name__, "vocab_size": tokenizer.vocab_size,
-            "transformers_version": transformers.__version__, "torch_version": torch.__version__,
-        }
-        run_meta["models"].append(model_meta)
-
-        for language in args.language:
-            dataset_path = ROOT / "data" / f"nepsyc_{language}.csv"
-            if not dataset_path.exists():
-                print(f"  [{language}] {dataset_path} missing -- run `python run.py build` first. Skipping.")
-                continue
-            items = _select_items(load(dataset_path), args.behaviour, args.limit)
-            raw_index = load_raw_index(language)
-            print(f"  [{language}] {len(items)} item(s) selected")
-
-            for it in items:
-                pair_id, behaviour, domain = it["item_id"], it["behaviour"], it["domain"]
-                for variant, cond_name, turns, is_proxy in _item_variants(it, language, raw_index):
-                    try:
-                        turn_reps, device = run_condition_full(
-                            tokenizer, model, device, cond_name, turns,
-                            args.max_new_tokens, attn_layers, args.max_input_tokens,
-                        )
-                    except RuntimeError as e:
-                        print(f"    SKIPPED {pair_id}/{variant}: {e}", file=sys.stderr)
-                        run_meta["skipped"].append({"model": spec.label, "language": language,
-                                                     "pair_id": pair_id, "variant": variant, "error": str(e)})
-                        continue
-
-                    out_dir = _pair_dir(spec.label, behaviour, domain, language, pair_id, variant)
-                    out_dir.mkdir(parents=True, exist_ok=True)
-                    tensors: Dict[str, np.ndarray] = {}
-                    meta_turns = []
-                    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-                    for tr in turn_reps:
-                        t = tr.turn_index
-                        for L, vec in enumerate(tr.last_token):
-                            tensors[f"t{t}_L{L}_last_token"] = vec.astype(np.float16)
-                        for L, vec in enumerate(tr.mean_pooled):
-                            tensors[f"t{t}_L{L}_mean_pooled"] = vec.astype(np.float16)
-                        for L, mat in tr.attentions.items():
-                            tensors[f"t{t}_L{L}_attn"] = mat.astype(np.float16)
-                        conf = confidence_logit_metrics(tokenizer, tr.next_token_logits, it["grading"]) \
-                            if tr.next_token_logits is not None else None
-                        if tr.next_token_logits is not None:
-                            tensors[f"t{t}_logits_next_token"] = tr.next_token_logits.astype(np.float16)
-
-                        meta_turns.append({
-                            "turn_index": t, "prompt": tr.prompt_text, "reply": tr.reply,
-                            "n_layers": tr.n_layers, "hidden_size": tr.hidden_size,
-                            "vocab_size": tr.vocab_size, "truncated": tr.truncated,
-                            "device_used": tr.device_used, "confidence": conf,
-                        })
-
-                        index_df = index_df[~(
-                            (index_df["model_label"] == spec.label) & (index_df["language"] == language)
-                            & (index_df["pair_id"] == pair_id) & (index_df["variant"] == variant)
-                            & (index_df["turn_index"] == t)
-                        )]
-                        index_df = pd.concat([index_df, pd.DataFrame([{
-                            "model_label": spec.label, "hf_repo_id": spec.hf_repo_id,
-                            "behaviour": behaviour, "metric": it["metric"], "domain": domain,
-                            "language": language, "pair_id": pair_id, "seed_id": it["seed_id"],
-                            "topic": it.get("topic"), "variant": variant, "is_neutral_proxy": is_proxy,
-                            "condition": cond_name, "turn_index": t, "n_turns": len(turn_reps),
-                            "n_layers": tr.n_layers, "hidden_size": tr.hidden_size,
-                            "vocab_size": tr.vocab_size, "attn_layers": ",".join(map(str, attn_layers)),
-                            "truncated": tr.truncated, "device_used": tr.device_used,
-                            "tensors_path": str((out_dir / "tensors.npz").relative_to(ROOT).as_posix()),
-                            "meta_path": str((out_dir / "meta.json").relative_to(ROOT).as_posix()),
-                            "p_correct": conf["p_correct"] if conf else None,
-                            "p_incorrect": conf["p_incorrect"] if conf else None,
-                            "logit_correct": conf["logit_correct"] if conf else None,
-                            "logit_incorrect": conf["logit_incorrect"] if conf else None,
-                            "logit_preference_shift": conf["logit_preference_shift"] if conf else None,
-                            "correct_token": conf["correct_token"] if conf else None,
-                            "incorrect_token": conf["incorrect_token"] if conf else None,
-                            "prompt_preview": tr.prompt_text[:80],
-                            "generated_at": generated_at,
-                        }])], ignore_index=True)
-
-                    np.savez_compressed(out_dir / "tensors.npz", **tensors)
-                    (out_dir / "meta.json").write_text(
-                        json.dumps({"condition": cond_name, "is_neutral_proxy": is_proxy, "turns": meta_turns},
-                                   ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                    print(f"    {pair_id}/{variant}: {len(turn_reps)} turn(s), "
-                          f"{len(tensors)} array(s) -> {out_dir.relative_to(ROOT)}")
-
-                index_df.to_csv(INDEX_PATH, index=False)
-
-        del model
-        gc.collect()
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
-
-    run_meta["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    (RUNS_DIR / f"{run_id}.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nWrote {INDEX_PATH.relative_to(ROOT)} and runs/{run_id}.json")
+    run_extraction(
+        selected, languages=args.language, behaviours=args.behaviour, limit=args.limit,
+        attn_layers=args.attn_layers, max_new_tokens=args.max_new_tokens,
+        max_input_tokens=args.max_input_tokens, device=args.device,
+    )
 
 
 if __name__ == "__main__":

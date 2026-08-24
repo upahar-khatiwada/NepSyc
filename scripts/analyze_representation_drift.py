@@ -76,7 +76,7 @@ TIDY_COLUMNS = TIDY_SORT_KEYS + [
 
 def _load_index(index_path: Path) -> pd.DataFrame:
     if not index_path.exists():
-        raise SystemExit(
+        raise FileNotFoundError(
             f"{index_path} does not exist -- run scripts/extract_representations.py first "
             "(this script is a pure reader of that artifact, it extracts nothing itself)."
         )
@@ -261,33 +261,50 @@ def build_summary(tidy: pd.DataFrame, validation: Dict[str, Any]) -> Dict[str, A
     }
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--index", type=Path, default=DEFAULT_INDEX)
-    ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
-    args = ap.parse_args()
-
-    index_df = _load_index(args.index)
+def run_drift_analysis(
+    index_path: Path = DEFAULT_INDEX, out_dir: Path = OUT_DIR,
+) -> "tuple[pd.DataFrame, Dict[str, pd.DataFrame], Dict[str, Any]]":
+    """Reads index_path, writes the aggregate metric files under out_dir, and returns
+    (tidy, aggregates, summary) -- the callable core behind `main()`, so a caller other than
+    the CLI (the dashboard's auto-extraction, see app/dashboard.py) can regenerate these files
+    in-process right after scripts/extract_representations.py runs, without shelling out.
+    Raises FileNotFoundError if index_path doesn't exist, ValueError if it resolves to zero
+    tidy rows -- both are caught and reported by `main()` below for CLI use.
+    """
+    index_df = _load_index(index_path)
     tidy, validation = build_tidy_table(index_df)
     if tidy.empty:
-        raise SystemExit(
-            f"No (sycophantic, neutral) pairs could be resolved from {args.index} -- "
+        raise ValueError(
+            f"No (sycophantic, neutral) pairs could be resolved from {index_path} -- "
             f"validation: {json.dumps(validation, default=str)}"
         )
 
     aggregates = build_aggregates(tidy)
     summary = build_summary(tidy, validation)
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    tidy.to_csv(args.out_dir / "layer_cosine.csv", index=False)
-    tidy.to_parquet(args.out_dir / "layer_cosine.parquet", index=False)
-    aggregates["layer_agg"].to_csv(args.out_dir / "layer_agg.csv", index=False)
-    aggregates["layer_ranking"].to_csv(args.out_dir / "layer_ranking.csv", index=False)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tidy.to_csv(out_dir / "layer_cosine.csv", index=False)
+    tidy.to_parquet(out_dir / "layer_cosine.parquet", index=False)
+    aggregates["layer_agg"].to_csv(out_dir / "layer_agg.csv", index=False)
+    aggregates["layer_ranking"].to_csv(out_dir / "layer_ranking.csv", index=False)
     for pooling, matrix in aggregates["matrices"].items():
-        matrix.to_csv(args.out_dir / f"model_layer_matrix_{pooling}.csv")
-    (args.out_dir / "summary.json").write_text(
+        matrix.to_csv(out_dir / f"model_layer_matrix_{pooling}.csv")
+    (out_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    return tidy, aggregates, summary
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--index", type=Path, default=DEFAULT_INDEX)
+    ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
+    args = ap.parse_args()
+
+    try:
+        tidy, aggregates, summary = run_drift_analysis(args.index, args.out_dir)
+    except (FileNotFoundError, ValueError) as e:
+        raise SystemExit(str(e)) from e
 
     if not summary["validation"]["ok"]:
         print("VALIDATION FLAGS:", file=sys.stderr)

@@ -1,12 +1,12 @@
 {
-  "n_tidy_rows": 1102,
+  "n_tidy_rows": 580,
   "models": {
     "Qwen2.5-1.5B": {
-      "n_rows": 1102,
-      "cosine_similarity_min": 0.6404787610980587,
+      "n_rows": 580,
+      "cosine_similarity_min": 0.6573215481544666,
       "cosine_similarity_max": 1.0000000000000002,
       "cosine_distance_min": -2.220446049250313e-16,
-      "cosine_distance_max": 0.3595212389019413,
+      "cosine_distance_max": 0.34267845184553336,
       "behaviours": [
         "agreement_bias",
         "attribution_bias",
@@ -17,16 +17,11 @@
       ],
       "pair_ids": [
         "AGS-F001",
-        "AGS-F002",
         "AIS-U001",
-        "AIS-U002",
         "ATS-A001",
         "DAS-D001",
-        "DAS-D002",
         "MRS-R001",
-        "MRS-R002",
-        "RPS-F001",
-        "RPS-F002"
+        "RPS-F001"
       ]
     }
   },

@@ -34,6 +34,8 @@ from nepsyc.competence import run_competence_sweep  # noqa: E402
 from nepsyc.config import load_config  # noqa: E402
 from nepsyc.metrics import BEHAVIOURS, METRIC_OF  # noqa: E402
 from nepsyc.pipeline import list_configured_models, run_evaluation  # noqa: E402
+from scripts.analyze_representation_drift import run_drift_analysis  # noqa: E402
+from scripts.extract_representations import run_extraction  # noqa: E402
 
 st.set_page_config(page_title="NepSyc", layout="wide")
 
@@ -449,6 +451,58 @@ def _discover_domains() -> list[str]:
     return sorted(domains) if domains else [build_dataset.DOMAIN]
 
 
+def _run_auto_representational(specs: list, items_by_language: dict) -> None:
+    """Runs scripts.extract_representations.run_extraction for `specs` (the hf_repo_id-eligible
+    target models selected for this sweep) against `items_by_language` -- the literal items
+    pipeline.run_evaluation() just scored for each language, keyed the same way, so extraction
+    covers exactly the prompts the sweep benchmarked rather than an independently reselected
+    slice (extraction's own --behaviour/--limit reselection, used by the CLI, is bypassed
+    entirely here). Then runs scripts.analyze_representation_drift.run_drift_analysis to
+    refresh data/representation/metrics/ -- so the Representational Learning page picks up a
+    model just run without a manual terminal step. Called only for a live (non-mock) sweep
+    with the sidebar's "Auto-extract after the sweep" toggle on and at least one eligible model
+    selected. One model's failure (OOM, a checkpoint too large for this machine, ...) is caught
+    inside run_extraction itself and reported here rather than aborting the rest -- see
+    run_extraction's own docstring.
+    """
+    _section(
+        "Representational analysis", "Auto-extracting for open-weight models",
+        "Loading real weights locally, one model at a time, for exactly the items the sweep "
+        "above just scored -- first run also downloads the checkpoint. Results land on the "
+        "Representational Learning page (sidebar nav).",
+    )
+    status = st.empty()
+    try:
+        meta = run_extraction(
+            specs, languages=list(items_by_language), items_by_language=items_by_language,
+            progress=lambda msg: status.info(msg),
+        )
+    except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a crash
+        status.empty()
+        st.error(f"Representational extraction failed: {e}")
+        return
+    status.empty()
+
+    for err in meta.get("model_errors", []):
+        st.warning(f"[{err['model']}] could not be extracted: {err['error']}")
+    ok_labels = [m["label"] for m in meta.get("models", [])]
+    if ok_labels:
+        st.success("Extracted representations for: " + ", ".join(ok_labels))
+    if meta.get("skipped"):
+        st.caption(f"{len(meta['skipped'])} item/condition(s) skipped during extraction (see terminal log).")
+
+    try:
+        _, _, drift_summary = run_drift_analysis()
+    except (FileNotFoundError, ValueError) as e:
+        st.warning(f"Representational metrics not refreshed: {e}")
+    else:
+        st.cache_data.clear()
+        st.success(
+            f"Representational Learning page refreshed -- {drift_summary['n_tidy_rows']} rows "
+            f"across {len(drift_summary['models'])} model(s). Open it from the sidebar."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -561,6 +615,35 @@ st.sidebar.caption(
     "returns blank replies rather than an error, so check coverage after any change."
 )
 
+st.sidebar.divider()
+st.sidebar.markdown('<div class="ns-eyebrow">Representational analysis</div>', unsafe_allow_html=True)
+repr_eligible_specs = [t for t in cfg.target_models if t.hf_repo_id]
+repr_eligible_selected = [t for t in repr_eligible_specs if t.label in selected_target_labels]
+auto_repr = st.sidebar.toggle(
+    "Auto-extract after the sweep", value=True, disabled=mock_mode,
+    help="After a live (non-mock) sweep, loads real weights locally for any selected target "
+         "model that has hf_repo_id set in config.yaml -- the open-weight models served via "
+         "the groq or local provider -- and extracts sycophantic-vs-neutral hidden states for "
+         "exactly the items that sweep just scored (same item_ids, not a separately reselected "
+         "slice), so they show up on the Representational Learning page. Disabled in Mock "
+         "mode: extraction always loads real weights, mock or not, so it has nothing to "
+         "smoke-test.",
+)
+if mock_mode:
+    st.sidebar.caption("Turn off Mock mode to enable auto-extraction.")
+elif repr_eligible_selected:
+    st.sidebar.caption(
+        "Eligible among selected targets: " + ", ".join(t.label for t in repr_eligible_selected)
+        + ". Extracts the same items the sweep above scores, so its cost follows Items per "
+          "behaviour / Full data above -- lower that if extraction is too slow. Loading real "
+          "weights can take minutes per model and needs local disk/RAM -- a checkpoint too "
+          "large for this machine (see config.yaml's comments on GPT-OSS-20B/120B) is skipped "
+          "with an error shown, not a crash."
+    )
+elif selected_target_labels:
+    st.sidebar.caption("None of the selected targets have hf_repo_id set in config.yaml -- "
+                       "nothing eligible for auto-extraction.")
+
 run_clicked = st.sidebar.button("Run benchmark", type="primary", width="stretch")
 st.sidebar.divider()
 existing_summary = ROOT / "results" / "summary.json"
@@ -614,6 +697,12 @@ if run_clicked:
         n_combos = len(combos)
         results_by_key: dict[str, dict] = {}
         errors_by_key: dict[str, str] = {}
+        # Items actually scored this sweep, per language -- fed to auto-extraction below so it
+        # covers exactly these prompts rather than reselecting its own slice. Domain is not a
+        # key here: each combo's items already carry their own `domain` field, and a language
+        # can appear in several combos (one per selected domain), so its items accumulate
+        # across all of them.
+        combo_items_by_lang: dict[str, list] = {}
 
         for combo_i, (lang, domain) in enumerate(combos):
             # A fresh Config per combo: run_evaluation resolves the dataset from
@@ -669,6 +758,7 @@ if run_clicked:
                              "n_items": len(result["items"]), "mock": mock_mode,
                              "from_end": sample_from_end},
                 }
+                combo_items_by_lang.setdefault(lang, []).extend(result["items"])
 
         progress_area.empty()
         for key, msg in errors_by_key.items():
@@ -676,6 +766,9 @@ if run_clicked:
         if results_by_key:
             st.session_state["dash_results"] = results_by_key
             st.session_state["dash_lang_view"] = next(iter(results_by_key))
+
+        if not mock_mode and auto_repr and repr_eligible_selected and combo_items_by_lang:
+            _run_auto_representational(repr_eligible_selected, combo_items_by_lang)
 
 if load_clicked:
     try:

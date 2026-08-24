@@ -346,6 +346,40 @@ precomputed files, never triggers extraction itself) with a "Research panels (op
 sub-section reading the five `research_*.csv` files independently — each panel's own caption
 states its `n` so a low-sample result is never presented as if it were settled.
 
+The one place extraction *can* be triggered from inside the app is the main dashboard's sidebar
+(`app/dashboard.py`, not this page): "Representational analysis" → "Auto-extract after the
+sweep" (default on, disabled in Mock mode). After a live `run_evaluation` sweep, it filters the
+sweep's selected target models down to whichever have `hf_repo_id` set (the groq/local
+open-weight models eligible for this feature at all) and calls
+`scripts.extract_representations.run_extraction()` for them, passing `items_by_language` —
+the literal `items` list(s) `run_evaluation()` just scored for each language, accumulated
+across every `(language, domain)` combo the sweep ran — so extraction covers exactly the
+prompts the sweep benchmarked rather than an independently reselected slice; `run_extraction`'s
+own `behaviours`/`limit` reselection (still what the CLI uses by default) is bypassed entirely
+whenever `items_by_language` is given. Then it calls
+`scripts.analyze_representation_drift.run_drift_analysis()` to refresh
+`data/representation/metrics/`, then `st.cache_data.clear()` so the Representational Learning
+page picks up the new model without a manual terminal step or app restart. Both scripts were
+split CLI-driver/callable-core the same way `pipeline.run_evaluation` was split from
+`cli.cmd_evaluate`: `run_extraction()` in `scripts/extract_representations.py` is `main()`'s
+former body, and `run_drift_analysis()` in `scripts/analyze_representation_drift.py` is
+`main()`'s former body — `main()` in each is now a thin CLI wrapper, so both remain runnable
+standalone exactly as documented above. `run_extraction()` catches one model's load/extraction
+failure (OOM, a checkpoint too large for this machine — e.g. GPT-OSS-20B/120B per their
+`config.yaml` comments — a network error fetching the weights) per model rather than letting it
+abort the rest, since the dashboard may hand it several models unattended; failures land in the
+returned `model_errors` list and are shown as `st.warning`s rather than crashing the app.
+Because `run_drift_analysis()` regenerates `data/representation/metrics/*.csv` from whatever
+`results/representations/index.csv` exists locally (gitignored) rather than merging with the
+previously-committed version, running this against a fresh clone whose `index.csv` doesn't yet
+include a previously-extracted model (e.g. the committed metrics' `Qwen2.5-1.5B` numbers, from a
+prior extraction run on a different machine) will locally overwrite those committed CSVs to
+contain only the model(s) just re-extracted, until that other model is re-extracted too —
+`data/representation/` (unlike `results/`) is git-tracked on purpose (the neutral-pair pool and
+these aggregate metrics are meant to be shared via clone; only the raw per-model tensors under
+`results/representations/` are gitignored for size), so this shows up as a normal working-tree
+diff on those files after any live sweep with auto-extraction on, not a bug.
+
 ### Dashboard (`app/dashboard.py`) — entry point, sidebar, Status/Prompt inspector
 
 Streamlit UI over the same pipeline the CLI uses — additive only, no pipeline/config/output
@@ -365,7 +399,14 @@ Sidebar builds a `Config` from `load_config()` plus widget values (target models
 `limit_per_behaviour`, a "Take last N instead of first N" toggle wired to `limit_from_end` (CLI
 equivalent: `--from-end`), and the mock toggle) and calls `pipeline.run_evaluation(cfg, mock=...,
 progress=...)`; a `RuntimeError` from a provider (missing API key, exhausted retries) is caught
-and shown as `st.error` instead of a traceback, with a pointer back to mock mode.
+and shown as `st.error` instead of a traceback, with a pointer back to mock mode. Right after
+that (still inside the "Run benchmark" click handler), if the sweep was live and the sidebar's
+"Representational analysis" → "Auto-extract after the sweep" toggle is on, `_run_auto_
+representational()` runs `scripts.extract_representations.run_extraction()` +
+`scripts.analyze_representation_drift.run_drift_analysis()` for whichever selected target
+models have `hf_repo_id` set — see "Representation-level analysis" above for the full behaviour
+and its caveats (per-model failure handling, local metrics files getting overwritten rather
+than merged).
 
 "Languages" and "Domains" are both multiselects, not the single dropdowns a single sweep's
 `cfg.run.language` / `cfg.run.domains` might suggest, and they compose: picking N languages ×
