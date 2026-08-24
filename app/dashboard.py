@@ -533,7 +533,15 @@ selected_behaviours = st.sidebar.multiselect(
     "Behaviours", BEHAVIOURS, default=BEHAVIOURS,
     format_func=lambda b: f"{b.replace('_', ' ').title()} ({METRIC_OF[b]})",
 )
-items_per_behaviour = st.sidebar.number_input("Items per behaviour", 1, 200, 2, 1)
+use_full_items = st.sidebar.toggle(
+    "Full data (no limit)", value=False,
+    help="Use every item in each selected behaviour's pool instead of a fixed N per "
+         "behaviour -- the real sweep, not a quick smoke test. Same as leaving --limit "
+         "unset on the CLI (0 = no limit).",
+)
+items_per_behaviour = st.sidebar.number_input(
+    "Items per behaviour", 1, 200, 2, 1, disabled=use_full_items,
+)
 sample_from_end = st.sidebar.toggle(
     "Take last N instead of first N", value=False,
     help="Items per behaviour normally keeps each behaviour's first N rows, in seed/"
@@ -617,7 +625,7 @@ if run_clicked:
             run_cfg.run.language = lang
             run_cfg.run.behaviours = list(selected_behaviours)
             run_cfg.run.domains = [domain]
-            run_cfg.run.limit_per_behaviour = int(items_per_behaviour)
+            run_cfg.run.limit_per_behaviour = 0 if use_full_items else int(items_per_behaviour)
             run_cfg.run.limit_from_end = bool(sample_from_end)
             run_cfg.run.target_model_ids = list(selected_target_labels)
             run_cfg.judges.models = list(selected_judges)
