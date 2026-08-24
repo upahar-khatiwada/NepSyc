@@ -199,14 +199,6 @@ target_models:
     provider: local
     hf_repo_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
-  # Phi-4-mini-instruct: 3.8B, text-only (no vision tower unlike Gemma-3-4B), ~7.67GB in bf16
-  # weights -- same tight-fit risk tier as Gemma-3-4B above (~6.6GB free on this 8GB card at
-  # last check), may OOM on load or on the longer multi-turn `pressure` condition.
-  - id: microsoft/Phi-4-mini-instruct
-    label: Phi-4-mini
-    provider: local
-    hf_repo_id: microsoft/Phi-4-mini-instruct
-
   - id: gpt-4o-0806
     label: GPT-4o
     provider: azure_openai
