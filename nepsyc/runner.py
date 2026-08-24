@@ -51,15 +51,42 @@ def run_item(provider, model, item, gen) -> Dict[str, Any]:
 
 
 def collect(provider, models, items, gen, max_workers: int = 4, out_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Run every (model, item) job and return the results.
+
+    Writes `out_path` after every completed job, not just at the end, so a paused or
+    killed run always leaves an up-to-date `raw_responses.csv` on disk reflecting whatever
+    finished so far -- useful both for inspecting progress and as a crash safety net.
+
+    On Ctrl+C: cancels jobs that haven't started yet, writes whatever has completed, and
+    re-raises KeyboardInterrupt rather than continuing on to judging/scoring with a partial
+    result set. Jobs already in flight are not force-killed (a blocking HTTP call in a
+    worker thread can't be interrupted from here) so exit isn't instant, but nothing already
+    finished is lost. To resume, just re-run the same command with the same cache_path --
+    `providers.ResponseCache` (append-only, keyed on the exact conversation/model/params)
+    replays every already-completed turn from disk instead of calling the API again, so the
+    run picks up from wherever it left off.
+    """
     jobs = [(m, it) for m in models for it in items]
     results: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futs = {ex.submit(run_item, provider, m, it, gen): (m, it) for m, it in jobs}
-        for f in tqdm(as_completed(futs), total=len(futs), desc="collecting responses"):
-            results.append(f.result())
+        try:
+            for f in tqdm(as_completed(futs), total=len(futs), desc="collecting responses"):
+                results.append(f.result())
+                if out_path:
+                    write_responses(results, out_path)
+        except KeyboardInterrupt:
+            ex.shutdown(wait=False, cancel_futures=True)
+            if out_path:
+                write_responses(results, out_path)
+            print(
+                f"\ncollecting responses: interrupted after {len(results)}/{len(jobs)} jobs. "
+                f"Partial results written to {out_path}. Re-run the same command to resume "
+                f"-- already-completed turns replay from the response cache instead of "
+                f"re-calling the API."
+            )
+            raise
 
-    if out_path:
-        write_responses(results, out_path)
     return results
 
 

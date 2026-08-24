@@ -292,4 +292,9 @@ def main():
     m.set_defaults(func=cmd_competence)
 
     args = ap.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        # runner.collect() already wrote partial results and printed a resume message;
+        # this just prevents a raw traceback on top of it.
+        raise SystemExit(130)

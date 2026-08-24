@@ -93,11 +93,24 @@ generation:
 #  build) -- such models are simply not offered by that feature.
 # ---------------------------------------------------------------------------
 target_models:
-  # Your endpoint. Verify the model id against /v1/models before a real run;
-  # some gateways use a display label that looks like the id but is not.
-  # No hf_repo_id: unsloth's NVFP4 quantized build isn't a standard transformers checkpoint.
-  - id: unsloth/Qwen3.6-35B-A3B-NVFP4-Fast
-    label: Qwen3.6-35B
+  # Your endpoint (llm.ank-world.com). Confirmed live against /v1/models on 2026-08-24 --
+  # note the exact casing on qwen3.8-27B ("B" capitalized; the gateway 404s on lowercase).
+  # No hf_repo_id: served via a custom gateway, not a standard-format HF repo.
+  - id: qwen3.8-27B
+    label: Qwen3.8-27B
+    strip_think: true
+
+  # ornith and qwen-ornith are two more models this same gateway serves. qwen-ornith is an
+  # auto-router: per llm.ank-world.com, it inspects the question and routes to whichever of
+  # qwen3.8-27B / ornith fits, so its replies are effectively "whichever of the other two the
+  # router picked" rather than a distinct model in its own right -- kept as its own target
+  # since sycophancy behaviour can still differ from either fixed model depending on routing.
+  - id: ornith
+    label: Ornith
+    strip_think: true
+
+  - id: qwen-ornith
+    label: Qwen-Ornith (auto-router)
     strip_think: true
 
   # Groq dropped every llama-3.x chat model from its catalog (confirmed live
