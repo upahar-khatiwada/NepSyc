@@ -427,10 +427,15 @@ exactly `results/<lang>`, as before domains existed).
 Results land in `st.session_state["dash_results"]`, a `{key: {summary, paths, report_text,
 meta}}` dict keyed by `language` when only one domain is selected (unchanged from before
 domains existed) or by `f"{language}__{domain}"` when more than one domain is in play;
-`"Load last results"` populates it with the single sentinel key `"(loaded from disk)"`. A
-"Viewing" radio appears whenever it holds more than one entry, using `dash_common.result_label
+`"Load last results"` populates it by scanning for every `summary.json` under `results/`
+(`_discover_result_summaries()`, not just the plain `results/summary.json`), so it also finds
+whatever a prior multi-language/multi-domain sweep wrote to `results/<lang>`, `results/<domain>`,
+or `results/<lang>/<domain>` — the button is disabled only when none exist anywhere. Each is
+keyed by its directory's path relative to `results/` (`"(root)"` for the plain
+`results/summary.json`), with language/domain best-effort inferred from that path for display.
+A "Viewing" radio appears whenever it holds more than one entry, using `dash_common.result_label
 (meta, key)` to render each option as `"{language label} ({lang}) · {domain}"` (or just the
-bare key for the disk-loaded sentinel) — scores are still never pooled across languages *or*
+bare key when no language could be inferred, e.g. `"(root)"`) — scores are still never pooled across languages *or*
 domains, matching the CLI's report caveat that AGS in `en` vs. `ne`, or in one domain vs.
 another, has to be diffed by hand, not averaged.
 
@@ -459,7 +464,12 @@ i.e. that item's first condition and turn) capped at 50 chars, so the picker rea
 language the active run's dataset is in rather than only ever showing English. Once an item is
 picked, it renders the exact conversation from `raw_responses.csv`'s `turn`/`reply` columns as
 chat bubbles grouped by condition (`main`, `stance_pro`/`stance_con`, `self_opinion`/
-`authority_cue`, ...), a colored score hero plus behaviour-specific badges parsed out of
+`authority_cue`, ...) -- each turn's text run through `dash_common.render_markdown()` (a
+`markdown-it-py` instance with the `gfm_plugin` for tables, `html=False` so any literal
+`<script>`/HTML a prompt or an adversarial reply contains gets escaped rather than passed
+through into the `unsafe_allow_html=True` block downstream) so a reply's own bold/headings/
+tables/rules actually render instead of showing up as literal `**`/`##`/`---` characters --
+a colored score hero plus behaviour-specific badges parsed out of
 `detail_json` (`DETAIL_FIELDS` in `app/dash_common.py`), and the judge panel's votes from
 `judge_detail.csv` as rationale cards with the raw grading prompt available in an expander — no
 new files or schema, purely a different read of the same CSVs. Needs `streamlit` / `plotly` /

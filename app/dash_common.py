@@ -14,12 +14,36 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from markdown_it import MarkdownIt
+from mdit_py_plugins.gfm import gfm_plugin
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from nepsyc.report import DIRECTION  # noqa: E402
+
+# Renders model replies and item prompts -- which the conversation/prompt-card views embed
+# into a raw-HTML string passed to st.markdown(..., unsafe_allow_html=True) -- as real
+# markdown (bold, headings, GFM tables, lists, rules) instead of literal escaped text, which
+# is what made a reply's own "**title**\n\n---\n\n## heading" read as a wall of stray
+# punctuation with an oversized gap around the barely-visible "---" line. html=False is a
+# safety requirement, not a style choice: an adversarial item or an adversarial model reply
+# could contain literal "<script>"/"<img onerror=...>", and with html=False markdown-it-py
+# escapes any raw HTML in the source into inert text instead of passing it through into a
+# block already marked unsafe_allow_html. gfm_plugin adds GFM tables (most replies lean on
+# them heavily) plus strikethrough/autolinks; markdown-it-py's own default link validator
+# already refuses to emit real hrefs for javascript:/data: URIs.
+_MD = MarkdownIt("commonmark", {"html": False}).use(gfm_plugin)
+
+
+def render_markdown(text: str) -> str:
+    """Markdown source -> safe HTML fragment. Use this (never html.escape) for any model
+    reply or item prompt text that ends up inside an unsafe_allow_html block -- see _MD
+    above for why html=False matters here."""
+    if not text:
+        return ""
+    return _MD.render(text)
 
 # Fixed categorical order (validated CVD-safe palette), assigned by model identity and
 # never by score rank, so a model keeps its colour across every chart and page.
@@ -202,7 +226,7 @@ CSS = """
   letter-spacing: 0.14em; text-transform: uppercase; color: rgba(128,138,150,1);
   margin-bottom: 6px;
 }
-.ns-bubble .ns-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+.ns-bubble .ns-text { font-size: 13.5px; line-height: 1.55; word-wrap: break-word; }
 
 .ns-jcard {
   border: 1px solid rgba(128,138,150,0.26); padding: 10px 14px; margin-bottom: 8px;
@@ -231,7 +255,47 @@ CSS = """
   letter-spacing: 0.14em; text-transform: uppercase; color: rgba(128,138,150,1);
   margin-bottom: 6px;
 }
-.ns-promptcard .ns-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+.ns-promptcard .ns-text { font-size: 13.5px; line-height: 1.55; word-wrap: break-word; }
+
+/* Rich content inside .ns-text -- render_markdown() output (dash_common.py) renders replies
+   and prompts as real markdown (bold/headings/tables/rules/lists) instead of literal escaped
+   text, so these style the actual tags it emits rather than relying on white-space: pre-wrap
+   to fake paragraph breaks (that approach also preserved the *inter-tag* whitespace in the
+   HTML output itself, turning ordinary tag boundaries into visible blank lines). */
+.ns-text p { margin: 0 0 8px; }
+.ns-text > :last-child { margin-bottom: 0; }
+.ns-text h1, .ns-text h2, .ns-text h3, .ns-text h4, .ns-text h5, .ns-text h6 {
+  font-family: 'Archivo', sans-serif; font-weight: 700; line-height: 1.3;
+  margin: 14px 0 6px;
+}
+.ns-text h1 { font-size: 17px; }
+.ns-text h2 { font-size: 15.5px; }
+.ns-text h3, .ns-text h4, .ns-text h5, .ns-text h6 { font-size: 14px; }
+.ns-text hr { border: none; border-top: 1px solid rgba(128,138,150,0.3); margin: 12px 0; }
+.ns-text ul, .ns-text ol { margin: 0 0 8px; padding-left: 20px; }
+.ns-text li { margin-bottom: 3px; }
+.ns-text blockquote {
+  margin: 0 0 8px; padding-left: 10px; border-left: 3px solid rgba(128,138,150,0.35);
+  color: rgba(128,138,150,1);
+}
+.ns-text code {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.92em;
+  background: rgba(128,138,150,0.14); padding: 1px 4px;
+}
+.ns-text pre {
+  font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.5;
+  background: rgba(128,138,150,0.1); padding: 8px 10px; margin: 0 0 8px; overflow-x: auto;
+}
+.ns-text pre code { background: none; padding: 0; }
+.ns-text table {
+  border-collapse: collapse; width: 100%; margin: 0 0 10px; font-size: 12.5px;
+  display: block; overflow-x: auto;
+}
+.ns-text th, .ns-text td {
+  border: 1px solid rgba(128,138,150,0.28); padding: 5px 8px; text-align: left;
+}
+.ns-text th { background: rgba(128,138,150,0.1); font-weight: 600; }
+.ns-text a { color: #2a78d6; }
 </style>
 """
 
@@ -458,13 +522,13 @@ def conversation_html(turns: pd.DataFrame) -> str:
             prompt = _s(r.get("turn"))
             bubbles.append(
                 f'<div class="ns-bubble ns-user"><div class="ns-role">User &middot; turn {int(r["turn_index"]) + 1}</div>'
-                f'<div class="ns-text">{html.escape(prompt)}</div></div>'
+                f'<div class="ns-text">{render_markdown(prompt)}</div></div>'
             )
             reply = _s(r.get("reply"))
             if reply:
                 bubbles.append(
                     f'<div class="ns-bubble ns-assistant"><div class="ns-role">Model reply</div>'
-                    f'<div class="ns-text">{html.escape(reply)}</div></div>'
+                    f'<div class="ns-text">{render_markdown(reply)}</div></div>'
                 )
         if err:
             bubbles.append(f'<div class="ns-bubble ns-error"><div class="ns-role">Error</div>'
@@ -488,7 +552,7 @@ def replies_only_html(turns: pd.DataFrame) -> str:
                 bubbles.append(
                     f'<div class="ns-bubble ns-assistant" style="margin-left:0;">'
                     f'<div class="ns-role">Turn {int(r["turn_index"]) + 1}</div>'
-                    f'<div class="ns-text">{html.escape(reply)}</div></div>'
+                    f'<div class="ns-text">{render_markdown(reply)}</div></div>'
                 )
             else:
                 bubbles.append(
@@ -514,7 +578,7 @@ def prompts_only_html(turns: pd.DataFrame) -> str:
         for _, r in sub.iterrows():
             cards.append(
                 f'<div class="ns-promptcard"><div class="ns-role">User &middot; turn {int(r["turn_index"]) + 1}</div>'
-                f'<div class="ns-text">{html.escape(_s(r.get("turn")))}</div></div>'
+                f'<div class="ns-text">{render_markdown(_s(r.get("turn")))}</div></div>'
             )
         blocks.append("".join(cards))
     return "".join(blocks)

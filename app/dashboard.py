@@ -451,6 +451,26 @@ def _discover_domains() -> list[str]:
     return sorted(domains) if domains else [build_dataset.DOMAIN]
 
 
+def _discover_result_summaries() -> dict[str, Path]:
+    """All summary.json files anywhere under results/, keyed by their directory's path
+    relative to results/ ("(root)" for the plain results/summary.json a single-combo run or
+    the CLI writes). A multi-language and/or multi-domain sweep from the sidebar writes one
+    summary.json per results/<lang>, results/<domain>, or results/<lang>/<domain> combo (see
+    the run loop below) instead of the plain root -- "Load last results" needs to find all of
+    them, not just the root one, or it reports nothing to load right after such a sweep. Not
+    cached: must reflect whatever is on disk right now, including a sweep that just finished
+    in this same rerun."""
+    results_root = ROOT / "results"
+    if not results_root.exists():
+        return {}
+    found = {}
+    for p in sorted(results_root.rglob("summary.json")):
+        rel = p.parent.relative_to(results_root)
+        key = "(root)" if str(rel) == "." else str(rel).replace("\\", "/")
+        found[key] = p
+    return found
+
+
 def _run_auto_representational(specs: list, items_by_language: dict) -> None:
     """Runs scripts.extract_representations.run_extraction for `specs` (the hf_repo_id-eligible
     target models selected for this sweep) against `items_by_language` -- the literal items
@@ -646,11 +666,13 @@ elif selected_target_labels:
 
 run_clicked = st.sidebar.button("Run benchmark", type="primary", width="stretch")
 st.sidebar.divider()
-existing_summary = ROOT / "results" / "summary.json"
+existing_summaries = _discover_result_summaries()
 load_clicked = st.sidebar.button(
-    "Load last results", disabled=not existing_summary.exists(), width="stretch",
-    help=("Render results/summary.json from disk without re-running."
-          if existing_summary.exists() else "No results/summary.json yet. Run a sweep first."),
+    "Load last results", disabled=not existing_summaries, width="stretch",
+    help=(f"Render {len(existing_summaries)} results/summary.json file(s) from disk "
+          "without re-running -- a multi-language/multi-domain sweep writes one per "
+          "results/<lang>/<domain> combo, not just the plain results/summary.json."
+          if existing_summaries else "No results/summary.json yet. Run a sweep first."),
 )
 
 st.sidebar.divider()
@@ -771,23 +793,34 @@ if run_clicked:
             _run_auto_representational(repr_eligible_selected, combo_items_by_lang)
 
 if load_clicked:
-    try:
-        loaded = json.loads(existing_summary.read_text(encoding="utf-8"))
-    except Exception as e:  # noqa: BLE001
-        st.error(f"Could not read {existing_summary}: {e}")
-    else:
-        out_dir = existing_summary.parent
+    loaded_results_by_key: dict[str, dict] = {}
+    for key, summary_path in existing_summaries.items():
+        try:
+            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Could not read {summary_path}: {e}")
+            continue
+        out_dir = summary_path.parent
         report_path = out_dir / "nepsyc_summary_latest.txt"
-        st.session_state["dash_results"] = {"(loaded from disk)": {
+        # Infer language/domain from the path segments (e.g. "ne_rom", "en/education")
+        # purely so result_label() can render a friendlier "Viewing" option than the bare
+        # directory name -- best-effort only, since a loaded summary carries no other run
+        # metadata (targets/judges/mock/...) the way a freshly-run sweep does.
+        rel_parts = [] if key == "(root)" else key.split("/")
+        lang = next((p for p in rel_parts if p in LANGUAGES), None)
+        domain = next((p for p in rel_parts if p in available_domains), None)
+        loaded_results_by_key[key] = {
             "summary": loaded,
-            "paths": {"summary_json": existing_summary, "item_scores": out_dir / "item_scores.csv",
+            "paths": {"summary_json": summary_path, "item_scores": out_dir / "item_scores.csv",
                       "raw_responses": out_dir / "raw_responses.csv",
                       "judge_detail": out_dir / "judge_detail.csv", "report_txt": report_path},
             "report_text": report_path.read_text(encoding="utf-8") if report_path.exists() else None,
             "meta": {"targets": None, "judges": None, "judge_provider": None,
-                     "language": None, "domain": None, "n_items": None, "mock": None, "from_end": None},
-        }}
-        st.session_state["dash_lang_view"] = "(loaded from disk)"
+                     "language": lang, "domain": domain, "n_items": None, "mock": None, "from_end": None},
+        }
+    if loaded_results_by_key:
+        st.session_state["dash_results"] = loaded_results_by_key
+        st.session_state["dash_lang_view"] = next(iter(loaded_results_by_key))
 
 if competence_run_clicked:
     if not selected_target_labels:
