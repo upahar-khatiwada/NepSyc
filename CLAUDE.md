@@ -60,7 +60,13 @@ streamlit run app/dashboard.py          # dashboard: pick models, run, see chart
 
 # Representation-level analysis (sycophantic vs. neutral hidden states) -- a third standalone
 # axis alongside evaluate/competence, see "Representation-level analysis" below.
-python scripts/build_neutral_pairs.py            # data/nepsyc_* -> data/representation/neutral_*.csv
+python run.py build-neutral                      # data/nepsyc_* -> data/representation/neutral_*.csv
+                                          # (same as scripts/build_neutral_pairs.py; needs
+                                          # `python run.py build` for these languages first)
+python run.py build-neutral --languages ne       # just the Nepali split (merges into the
+                                          # shared pairs_manifest.csv, doesn't clobber the
+                                          # other languages' rows)
+python scripts/build_neutral_pairs.py            # same thing, standalone-script form
 python scripts/validate_neutral_pairs.py         # asserts pairing integrity, prints coverage
 python scripts/extract_representations.py --dry-run   # lists model x pair x variant counts, extracts nothing
 python scripts/extract_representations.py --model Qwen2.5-1.5B --limit 2 --attn-layers none
@@ -274,6 +280,7 @@ to already exist vs. missing before this was built: `docs/REPRESENTATION_ANALYSI
 data/nepsyc_{en,ne,ne_rom}.csv (untouched)
     |  nepsyc/neutral_pairs.py -- one FIXED mechanical rule per behaviour (drop the claim/
     |  stance/authority cue, never a hand-rewrite): scripts/build_neutral_pairs.py
+    |  (also reachable as `python run.py build-neutral`, cli.py:cmd_build_neutral)
     v
 data/representation/neutral_{en,ne,ne_rom}.csv, pairs_manifest.csv   (705 pairs, all 3
     |                                                                  languages, validated by

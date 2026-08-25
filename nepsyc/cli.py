@@ -2,6 +2,8 @@
 
     python run.py build                          # seeds -> data/nepsyc_{en,ne,ne_rom}.csv
     python run.py build --languages ne            # just the Nepali split
+    python run.py build-neutral                    # nepsyc_<lang>.csv -> data/representation/neutral_<lang>.csv
+    python run.py build-neutral --languages ne     # just the Nepali split (needs nepsyc_ne.csv already built)
     python run.py check-models                    # what your provider actually serves right now
     python run.py evaluate --mock                 # full pipeline offline, no API key
     python run.py evaluate                        # the real thing, run.language from config.yaml
@@ -22,12 +24,18 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from . import build_dataset, competence
 from .config import ROOT, load_config
 from .pipeline import run_evaluation
 from .providers import ResponseCache, build_provider
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.build_neutral_pairs import run_build_neutral_pairs  # noqa: E402
 
 
 def _resolve(p: str) -> Path:
@@ -49,6 +57,24 @@ def cmd_build(args):
         print(f"[{language}] wrote {len(items)} items -> {out}")
         for k, v in c.items():
             print(f"  {k:<26} {v}")
+
+
+def cmd_build_neutral(args):
+    """The neutral-dataset counterpart to `build`: for each requested language, reads the
+    already-built data/nepsyc_<language>.csv and writes its matched neutral (non-
+    sycophantic) items to data/representation/neutral_<language>.csv plus the shared
+    pairs_manifest.csv. See nepsyc/neutral_pairs.py for the per-behaviour neutral-turn
+    rules. Requires `python run.py build` (for these languages) to have already run --
+    it reads the built dataset, it doesn't rebuild it.
+    """
+    languages = args.languages or build_dataset.LANGUAGES
+    missing = [l for l in languages if not (ROOT / "data" / f"nepsyc_{l}.csv").exists()]
+    if missing:
+        raise SystemExit(
+            f"missing data/nepsyc_<language>.csv for: {missing} -- "
+            f"run `python run.py build --languages {' '.join(missing)}` first"
+        )
+    run_build_neutral_pairs(languages=languages)
 
 
 def _hf_repo_check(repo_id: str) -> str:
@@ -232,6 +258,15 @@ def main():
     b.add_argument("--languages", nargs="*", default=None,
                    help=f"default: all of {build_dataset.LANGUAGES}")
     b.set_defaults(func=cmd_build)
+
+    bn = sub.add_parser(
+        "build-neutral",
+        help="build the matched neutral (non-sycophantic) dataset from an already-built "
+             "nepsyc_<language>.csv, for representation-drift analysis",
+    )
+    bn.add_argument("--languages", nargs="*", default=None,
+                     help=f"default: all of {build_dataset.LANGUAGES}")
+    bn.set_defaults(func=cmd_build_neutral)
 
     c = sub.add_parser("check-models", help="list models your provider currently serves")
     c.set_defaults(func=cmd_check_models)
