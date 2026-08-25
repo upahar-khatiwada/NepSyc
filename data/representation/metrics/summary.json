@@ -1,27 +1,24 @@
 {
-  "n_tidy_rows": 580,
+  "n_tidy_rows": 1188,
   "models": {
-    "Qwen2.5-1.5B": {
-      "n_rows": 580,
-      "cosine_similarity_min": 0.6573215481544666,
-      "cosine_similarity_max": 1.0000000000000002,
-      "cosine_distance_min": -2.220446049250313e-16,
-      "cosine_distance_max": 0.34267845184553336,
+    "Gemma-2-2B": {
+      "n_rows": 1188,
+      "cosine_similarity_min": 0.16605874645411225,
+      "cosine_similarity_max": 0.9999999999999999,
+      "cosine_distance_min": 1.1102230246251565e-16,
+      "cosine_distance_max": 0.8339412535458878,
       "behaviours": [
-        "agreement_bias",
-        "attribution_bias",
         "authority_influence",
         "delusion_acceptance",
-        "mirroring",
-        "revision_under_pressure"
+        "mirroring"
       ],
       "pair_ids": [
-        "AGS-F001",
-        "AIS-U001",
-        "ATS-A001",
-        "DAS-D001",
-        "MRS-R001",
-        "RPS-F001"
+        "AIS-U017",
+        "AIS-U019",
+        "DAS-D013",
+        "MRS-R003",
+        "MRS-SB006",
+        "MRS-SB033"
       ]
     }
   },

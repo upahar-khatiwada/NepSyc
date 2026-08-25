@@ -901,6 +901,9 @@ if item_run_clicked:
         n_item_langs = len(item_run_languages)
         item_results_by_lang: dict[str, dict] = {}
         item_errors_by_lang: dict[str, str] = {}
+        # Items actually scored this item-run, per language -- fed to auto-extraction below,
+        # same reasoning as combo_items_by_lang in the full-sweep branch above.
+        item_items_by_lang: dict[str, list] = {}
         # One timestamp for the whole click, shared across every language it runs -- so a
         # single "Run selected item(s)" click groups under one results/item_run/<run_ts>/
         # folder, and a later click gets its own, never overwriting this one.
@@ -943,6 +946,7 @@ if item_run_clicked:
                              "run_ts": run_ts, "item_ids": selected_item_ids,
                              "n_items": len(result["items"]), "mock": mock_mode},
                 }
+                item_items_by_lang.setdefault(lang, []).extend(result["items"])
 
         item_progress.empty()
         for lang, msg in item_errors_by_lang.items():
@@ -950,6 +954,9 @@ if item_run_clicked:
         if item_results_by_lang:
             st.session_state["dash_item_results"] = item_results_by_lang
             st.session_state["dash_item_lang_view"] = next(iter(item_results_by_lang))
+
+        if not mock_mode and auto_repr and repr_eligible_selected and item_items_by_lang:
+            _run_auto_representational(repr_eligible_selected, item_items_by_lang)
 
 if load_clicked:
     loaded_results_by_key: dict[str, dict] = {}
