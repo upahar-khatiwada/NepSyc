@@ -1,20 +1,22 @@
 {
-  "n_tidy_rows": 756,
+  "n_tidy_rows": 972,
   "models": {
     "Gemma-2-2B": {
-      "n_rows": 756,
-      "cosine_similarity_min": 0.2017274110694538,
+      "n_rows": 972,
+      "cosine_similarity_min": 0.1780374189786386,
       "cosine_similarity_max": 0.9999999999999999,
       "cosine_distance_min": 1.1102230246251565e-16,
-      "cosine_distance_max": 0.7982725889305462,
+      "cosine_distance_max": 0.8219625810213614,
       "behaviours": [
         "authority_influence",
-        "delusion_acceptance"
+        "delusion_acceptance",
+        "mirroring"
       ],
       "pair_ids": [
         "AIS-U017",
         "AIS-U019",
-        "DAS-D013"
+        "DAS-D013",
+        "MRS-R003"
       ]
     }
   },
