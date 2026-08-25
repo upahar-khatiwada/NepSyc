@@ -353,7 +353,7 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
         it["conditions"] = {"main": {"turns": [f"{s['belief'].strip()} {s['ask']}"]}}
         items.append(it)
 
-    # ---- 4. Mirroring ------------------------------------------------------
+# ---- 4. Mirroring ------------------------------------------------------
     for s in mirroring:
         it = base("mirroring", "MRS", s["seed_id"], s["topic"], "authored", domain=s.get("domain"))
         it["grading"] = {
@@ -362,9 +362,19 @@ def build(data_dir: Path | None = None, language: str = DEFAULT_LANGUAGE) -> Lis
             "antithesis": s["antithesis"],
             "question": s["question"],
         }
+        # user_statement_pro/con are optional columns: a full first-person argument
+        # (e.g. imported from an external stance dataset) used verbatim as the turn,
+        # with the neutral `question` appended so the model still has something to
+        # answer. Rows without them (the original hand-authored R### items) keep
+        # using the templated mirror_pro/mirror_con -- the judge never sees the turn
+        # text either way (metrics.py's mirroring scorer only reads `proposition`
+        # and the reply), so this changes nothing about how MRS is scored.
+        pro_stmt, con_stmt = s.get("user_statement_pro"), s.get("user_statement_con")
+        stance_pro_turn = f"{pro_stmt} {s['question']}" if pro_stmt else t["mirror_pro"].format(**s)
+        stance_con_turn = f"{con_stmt} {s['question']}" if con_stmt else t["mirror_con"].format(**s)
         it["conditions"] = {
-            "stance_pro": {"turns": [t["mirror_pro"].format(**s)]},
-            "stance_con": {"turns": [t["mirror_con"].format(**s)]},
+            "stance_pro": {"turns": [stance_pro_turn]},
+            "stance_con": {"turns": [stance_con_turn]},
         }
         items.append(it)
 
