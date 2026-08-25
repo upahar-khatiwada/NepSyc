@@ -8,6 +8,7 @@ import html
 import json
 import math
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +23,7 @@ if str(ROOT) not in sys.path:
 from app.dash_common import (  # noqa: E402
     BAD_COLOR, BLANK_RATE_BAD, COND_LABELS, COVERAGE_OK, CSS, DETAIL_FIELDS,
     LANGUAGE_LABELS, LANGUAGES, MIN_N_FOR_CI, MUTED, OK_COLOR, SIGNED_METRICS, WARN_COLOR,
-    _badge_value, _fmt, _pct, _preview_snippet, _read_csv, _s, _score_color,
+    _badge_value, _fmt, _format_run_ts, _pct, _preview_snippet, _read_csv, _s, _score_color,
     badges_html as _badges_html, collection_health as _collection_health, color_map,
     conversation_html as _conversation_html, coverage_summary as _coverage, entry as _entry,
     hero_html as _hero_html, judge_cards_html as _judge_cards_html,
@@ -451,15 +452,42 @@ def _discover_domains() -> list[str]:
     return sorted(domains) if domains else [build_dataset.DOMAIN]
 
 
+@st.cache_data(show_spinner=False)
+def _item_catalog() -> list[dict]:
+    """Every item's id + a preview, built fresh from data/seeds+authored in memory (never a
+    dataset CSV on disk, so this works even before `python run.py build` has ever run) --
+    feeds the sidebar's "Spot-check a single item" picker so a user can search/browse by
+    content instead of having to already know an id like "DAS-D013". Always built in English:
+    item_id/behaviour/domain/topic are identical across all three language datasets (only the
+    wording differs), and English is what most users will find readable as a hint regardless
+    of which language(s) the item is actually run in."""
+    items = build_dataset.build(language="en")
+    catalog = []
+    for it in items:
+        first_cond = next(iter(it["conditions"].values()), None)
+        preview = first_cond["turns"][0] if first_cond and first_cond.get("turns") else ""
+        catalog.append({
+            "item_id": it["item_id"], "behaviour": it["behaviour"],
+            "domain": it["domain"], "topic": it.get("topic"), "preview": preview,
+        })
+    return catalog
+
+
 def _discover_result_summaries() -> dict[str, Path]:
     """All summary.json files anywhere under results/, keyed by their directory's path
     relative to results/ ("(root)" for the plain results/summary.json a single-combo run or
     the CLI writes). A multi-language and/or multi-domain sweep from the sidebar writes one
     summary.json per results/<lang>, results/<domain>, or results/<lang>/<domain> combo (see
-    the run loop below) instead of the plain root -- "Load last results" needs to find all of
-    them, not just the root one, or it reports nothing to load right after such a sweep. Not
-    cached: must reflect whatever is on disk right now, including a sweep that just finished
-    in this same rerun."""
+    the run loop below) instead of the plain root; the sidebar's "Spot-check a single item"
+    panel writes one per results/item_run/<run_ts>/<language> (a fresh timestamp per click, so
+    successive item runs don't overwrite each other and stay individually loadable). "Load
+    last results" needs to find all of these, not just the root one, or it reports nothing to
+    load right after a sweep or an item run. Not cached: must reflect whatever is on disk right
+    now, including a run that just finished in this same rerun. Keys starting with "item_run/"
+    are routed to dash_item_results instead of dash_results by the load handler below --
+    they're discovered together here (one picker, one button) but never loaded into the same
+    session-state bucket, so a one-item test still never gets mixed into a full sweep's
+    viewer."""
     results_root = ROOT / "results"
     if not results_root.exists():
         return {}
@@ -469,6 +497,27 @@ def _discover_result_summaries() -> dict[str, Path]:
         key = "(root)" if str(rel) == "." else str(rel).replace("\\", "/")
         found[key] = p
     return found
+
+
+def _result_key_label(key: str, available_domains: list[str]) -> str:
+    """Friendly label for a _discover_result_summaries() key, e.g. "English (en) . education"
+    for a sweep, or "Item spot-check . English (en) . 2026-08-25 21:12:00" for a
+    results/item_run/<run_ts>/<language> entry -- so the "Result(s) to load" picker reads the
+    same way before anything is loaded as result_label() renders it after."""
+    if key == "(root)":
+        return "(root)"
+    parts = key.split("/")
+    if parts[0] == "item_run" and len(parts) == 3:
+        _, run_ts, lang = parts
+        return f"Item spot-check · {LANGUAGE_LABELS.get(lang, lang)} ({lang}) · {_format_run_ts(run_ts)}"
+    lang = next((p for p in parts if p in LANGUAGES), None)
+    domain = next((p for p in parts if p in available_domains), None)
+    labels = []
+    if lang:
+        labels.append(f"{LANGUAGE_LABELS.get(lang, lang)} ({lang})")
+    if domain:
+        labels.append(domain)
+    return " · ".join(labels) if labels else key
 
 
 def _run_auto_representational(specs: list, items_by_language: dict) -> None:
@@ -624,7 +673,7 @@ sample_from_end = st.sidebar.toggle(
          "different, untested slice of the dataset.",
 )
 
-mock_mode = st.sidebar.toggle("Mock mode", value=True)
+mock_mode = st.sidebar.toggle("Mock mode", value=False)
 st.sidebar.caption(
     "Mock mode is free and instant: every model returns the same canned reply, which is "
     "enough to check wiring. Turn it off for a real sweep, with the providers' keys in .env."
@@ -634,6 +683,44 @@ st.sidebar.caption(
     f"{cfg.run.requests_per_minute} requests per minute. Going over a provider's limit "
     "returns blank replies rather than an error, so check coverage after any change."
 )
+
+st.sidebar.divider()
+st.sidebar.markdown('<div class="ns-eyebrow">Spot-check a single item</div>', unsafe_allow_html=True)
+item_catalog = _item_catalog()
+item_option_of = {
+    f"{it['item_id']}  ·  {METRIC_OF.get(it['behaviour'], it['behaviour'])} "
+    f"{it['behaviour'].replace('_', ' ').title()}  ·  {it['domain']}  ·  "
+    f"{_preview_snippet(it['preview'], max_len=70)}": it["item_id"]
+    for it in item_catalog
+}
+selected_item_opts = st.sidebar.multiselect(
+    "Item(s) to run", list(item_option_of), default=[],
+    help="Run exactly these item(s) instead of a full sweep -- bypasses Behaviours/Domains/"
+         "Items per behaviour above entirely. Type to search by id (e.g. \"D013\"), "
+         "behaviour, domain, or the item's own text; the preview shown here is always in "
+         "English, but the item itself exists in every language below with the same id, "
+         "just different wording.",
+)
+selected_item_ids = [item_option_of[o] for o in selected_item_opts]
+item_run_languages = st.sidebar.multiselect(
+    "Language(s) for this item", LANGUAGES, default=selected_languages or [cfg.run.language],
+    format_func=lambda lang: f"{LANGUAGE_LABELS[lang]} ({lang})", key="item_run_languages",
+    help="Runs the selected item(s) once per language picked here, independent of the "
+         "Languages multiselect above. Uses the same Target models, Judge models/provider, "
+         "and Mock mode already chosen above.",
+)
+item_run_clicked = st.sidebar.button(
+    "Run selected item(s)", width="stretch", disabled=not selected_item_ids,
+    help=None if selected_item_ids else "Pick at least one item above first.",
+)
+if selected_item_ids:
+    st.sidebar.caption(
+        f"{len(selected_item_ids)} item(s) x {len(item_run_languages)} language(s) x "
+        f"{len(selected_target_labels)} model(s). Results appear in their own \"Item "
+        "spot-check\" section below, separate from any full sweep's results. Each run gets "
+        "its own timestamped results/item_run/ folder, so past runs stay reloadable from "
+        "\"Result(s) to load\" below rather than being overwritten by the next one."
+    )
 
 st.sidebar.divider()
 st.sidebar.markdown('<div class="ns-eyebrow">Representational analysis</div>', unsafe_allow_html=True)
@@ -667,12 +754,19 @@ elif selected_target_labels:
 run_clicked = st.sidebar.button("Run benchmark", type="primary", width="stretch")
 st.sidebar.divider()
 existing_summaries = _discover_result_summaries()
+selected_load_keys = st.sidebar.multiselect(
+    "Result(s) to load", list(existing_summaries), default=list(existing_summaries),
+    format_func=lambda k: _result_key_label(k, available_domains), disabled=not existing_summaries,
+    help="Which results/.../summary.json file(s) to load from disk, without re-running -- "
+         "a multi-language/multi-domain sweep writes one per results/<lang>/<domain> combo, "
+         "not just the plain results/summary.json. Defaults to all of them; narrow this to "
+         "load just one specific combo instead.",
+)
 load_clicked = st.sidebar.button(
-    "Load last results", disabled=not existing_summaries, width="stretch",
-    help=(f"Render {len(existing_summaries)} results/summary.json file(s) from disk "
-          "without re-running -- a multi-language/multi-domain sweep writes one per "
-          "results/<lang>/<domain> combo, not just the plain results/summary.json."
-          if existing_summaries else "No results/summary.json yet. Run a sweep first."),
+    "Load last results", disabled=not selected_load_keys, width="stretch",
+    help=(f"Render {len(selected_load_keys)} of {len(existing_summaries)} discovered "
+          "results/summary.json file(s)." if existing_summaries
+          else "No results/summary.json yet. Run a sweep first."),
 )
 
 st.sidebar.divider()
@@ -792,9 +886,76 @@ if run_clicked:
         if not mock_mode and auto_repr and repr_eligible_selected and combo_items_by_lang:
             _run_auto_representational(repr_eligible_selected, combo_items_by_lang)
 
+if item_run_clicked:
+    if not selected_item_ids:
+        st.sidebar.error("Select at least one item.")
+    elif not selected_target_labels:
+        st.sidebar.error("Select at least one target model.")
+    elif not selected_judges:
+        st.sidebar.error("Select at least one judge model.")
+    elif not item_run_languages:
+        st.sidebar.error("Select at least one language for this item.")
+    else:
+        item_progress = st.empty()
+        item_bar = item_progress.progress(0, text="Starting")
+        n_item_langs = len(item_run_languages)
+        item_results_by_lang: dict[str, dict] = {}
+        item_errors_by_lang: dict[str, str] = {}
+        # One timestamp for the whole click, shared across every language it runs -- so a
+        # single "Run selected item(s)" click groups under one results/item_run/<run_ts>/
+        # folder, and a later click gets its own, never overwriting this one.
+        run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        for li, lang in enumerate(item_run_languages):
+            # A fresh Config per language, same reasoning as the full-sweep loop above:
+            # run_evaluation writes the resolved dataset path back onto cfg.run.dataset.
+            run_cfg = load_config()
+            run_cfg.run.language = lang
+            run_cfg.run.item_ids = list(selected_item_ids)
+            run_cfg.run.behaviours = []
+            run_cfg.run.domains = []
+            run_cfg.run.limit_per_behaviour = 0
+            run_cfg.run.limit_total = 0
+            run_cfg.run.target_model_ids = list(selected_target_labels)
+            run_cfg.judges.models = list(selected_judges)
+            run_cfg.judges.provider = judge_provider
+            # A separate, timestamped results tree so a quick one-item test never overwrites,
+            # or gets mixed into, a full sweep's results/<lang>[/<domain>] output -- and so
+            # successive item runs stay individually reloadable instead of clobbering each other.
+            run_cfg.run.output_dir = f"results/item_run/{run_ts}/{lang}"
+
+            def _item_tick(frac: float, msg: str, _i=li) -> None:
+                item_bar.progress(min(max((_i + frac) / n_item_langs, 0.0), 1.0),
+                                  text=f"[{lang}] {msg} ({_i + 1}/{n_item_langs})")
+
+            try:
+                result = run_evaluation(run_cfg, mock=mock_mode, progress=_item_tick)
+            except RuntimeError as e:
+                item_errors_by_lang[lang] = f"{e}\n\nTurn on Mock mode in the sidebar to run without API keys."
+            except Exception as e:  # noqa: BLE001 -- surfaced as a message, not a traceback
+                item_errors_by_lang[lang] = f"Run failed: {e}"
+            else:
+                item_results_by_lang[f"{run_ts}__{lang}"] = {
+                    "summary": result["summary"], "paths": result["paths"],
+                    "report_text": result["report_text"],
+                    "meta": {"targets": selected_target_labels, "judges": selected_judges,
+                             "judge_provider": judge_provider, "language": lang,
+                             "run_ts": run_ts, "item_ids": selected_item_ids,
+                             "n_items": len(result["items"]), "mock": mock_mode},
+                }
+
+        item_progress.empty()
+        for lang, msg in item_errors_by_lang.items():
+            st.error(f"Item run [{lang}]: {msg}")
+        if item_results_by_lang:
+            st.session_state["dash_item_results"] = item_results_by_lang
+            st.session_state["dash_item_lang_view"] = next(iter(item_results_by_lang))
+
 if load_clicked:
     loaded_results_by_key: dict[str, dict] = {}
-    for key, summary_path in existing_summaries.items():
+    loaded_item_results_by_key: dict[str, dict] = {}
+    for key in selected_load_keys:
+        summary_path = existing_summaries[key]
         try:
             loaded = json.loads(summary_path.read_text(encoding="utf-8"))
         except Exception as e:  # noqa: BLE001
@@ -802,25 +963,47 @@ if load_clicked:
             continue
         out_dir = summary_path.parent
         report_path = out_dir / "nepsyc_summary_latest.txt"
-        # Infer language/domain from the path segments (e.g. "ne_rom", "en/education")
-        # purely so result_label() can render a friendlier "Viewing" option than the bare
-        # directory name -- best-effort only, since a loaded summary carries no other run
-        # metadata (targets/judges/mock/...) the way a freshly-run sweep does.
+        paths = {"summary_json": summary_path, "item_scores": out_dir / "item_scores.csv",
+                 "raw_responses": out_dir / "raw_responses.csv",
+                 "judge_detail": out_dir / "judge_detail.csv", "report_txt": report_path}
+        report_text = report_path.read_text(encoding="utf-8") if report_path.exists() else None
+
         rel_parts = [] if key == "(root)" else key.split("/")
-        lang = next((p for p in rel_parts if p in LANGUAGES), None)
-        domain = next((p for p in rel_parts if p in available_domains), None)
-        loaded_results_by_key[key] = {
-            "summary": loaded,
-            "paths": {"summary_json": summary_path, "item_scores": out_dir / "item_scores.csv",
-                      "raw_responses": out_dir / "raw_responses.csv",
-                      "judge_detail": out_dir / "judge_detail.csv", "report_txt": report_path},
-            "report_text": report_path.read_text(encoding="utf-8") if report_path.exists() else None,
-            "meta": {"targets": None, "judges": None, "judge_provider": None,
-                     "language": lang, "domain": domain, "n_items": None, "mock": None, "from_end": None},
-        }
+        if rel_parts and rel_parts[0] == "item_run" and len(rel_parts) == 3:
+            # results/item_run/<run_ts>/<language>/ -- route to dash_item_results, keyed the
+            # same way a freshly-run item spot-check keys it, so both sit in the same
+            # "Viewing" list if a fresh run and a loaded one are both present at once.
+            _, run_ts, lang = rel_parts
+            loaded_item_results_by_key[f"{run_ts}__{lang}"] = {
+                "summary": loaded, "paths": paths, "report_text": report_text,
+                # No targets/judges/item_ids/mock recorded -- a loaded summary carries no
+                # other run metadata the way a freshly-run item spot-check does.
+                "meta": {"targets": None, "judges": None, "judge_provider": None,
+                         "language": lang, "run_ts": run_ts, "item_ids": None,
+                         "n_items": None, "mock": None},
+            }
+        else:
+            # Infer language/domain from the path segments (e.g. "ne_rom", "en/education")
+            # purely so result_label() can render a friendlier "Viewing" option than the bare
+            # directory name -- best-effort only, since a loaded summary carries no other run
+            # metadata (targets/judges/mock/...) the way a freshly-run sweep does.
+            lang = next((p for p in rel_parts if p in LANGUAGES), None)
+            domain = next((p for p in rel_parts if p in available_domains), None)
+            loaded_results_by_key[key] = {
+                "summary": loaded, "paths": paths, "report_text": report_text,
+                "meta": {"targets": None, "judges": None, "judge_provider": None,
+                         "language": lang, "domain": domain, "n_items": None, "mock": None,
+                         "from_end": None},
+            }
+    # Each bucket is only touched if this load actually included that kind of entry, so
+    # loading just a sweep (or just an item run) doesn't wipe out whatever the other section
+    # already had in session state from an earlier run or an earlier load.
     if loaded_results_by_key:
         st.session_state["dash_results"] = loaded_results_by_key
         st.session_state["dash_lang_view"] = next(iter(loaded_results_by_key))
+    if loaded_item_results_by_key:
+        st.session_state["dash_item_results"] = loaded_item_results_by_key
+        st.session_state["dash_item_lang_view"] = next(iter(loaded_item_results_by_key))
 
 if competence_run_clicked:
     if not selected_target_labels:
@@ -902,6 +1085,101 @@ _section(
     "panels, now live on the Representational Learning page (sidebar). It renders "
     "independently of any run here -- open it any time.",
 )
+
+# ---------------------------------------------------------------------------
+# Item spot-check -- results from the sidebar's "Spot-check a single item" panel. Its own
+# session-state key and its own results/item_run/<run_ts>/<lang> tree (a fresh timestamp per
+# run), kept separate from a full sweep's dash_results so a quick one-item test never gets
+# mixed into, or overwrites, real sweep results shown further down.
+# ---------------------------------------------------------------------------
+
+item_dash_results = st.session_state.get("dash_item_results")
+if item_dash_results:
+    _section(
+        "Item spot-check", "Run history for a hand-picked item id",
+        "From the sidebar's \"Spot-check a single item\" panel -- the exact prompts, "
+        "replies, and score(s) for whichever item id(s) and language(s) you picked.",
+    )
+    item_lang_keys = list(item_dash_results)
+    if len(item_lang_keys) > 1:
+        default_item_view = st.session_state.get("dash_item_lang_view", item_lang_keys[0])
+        if default_item_view not in item_lang_keys:
+            default_item_view = item_lang_keys[0]
+        active_item_lang = st.radio(
+            "Viewing", item_lang_keys, index=item_lang_keys.index(default_item_view),
+            horizontal=True, key="dash_item_lang_view",
+            format_func=lambda k: result_label(item_dash_results[k]["meta"], k),
+        )
+    else:
+        active_item_lang = item_lang_keys[0]
+    item_state = item_dash_results[active_item_lang]
+    item_paths = {k: (Path(v) if v else None) for k, v in item_state["paths"].items()}
+    item_scores_df = _read_csv(item_paths.get("item_scores"))
+    item_raw_df = _read_csv(item_paths.get("raw_responses"))
+    item_judge_df = _read_csv(item_paths.get("judge_detail"))
+
+    if item_scores_df is None or item_scores_df.empty:
+        st.caption("No scored rows for this item run.")
+    else:
+        item_preview_of: dict = {}
+        if item_raw_df is not None and {"model", "item_id", "turn"} <= set(item_raw_df.columns):
+            item_preview_of = item_raw_df.groupby(["model", "item_id"], sort=False)["turn"].first().to_dict()
+
+        item_scores_df = item_scores_df.sort_values(["item_id", "model"]).reset_index(drop=True)
+
+        def _item_label(r) -> str:
+            metric = METRIC_OF.get(r.behaviour, r.behaviour)
+            score_s = _fmt(r.score, signed=metric in SIGNED_METRICS) if r.score == r.score else "n/a"
+            preview = _preview_snippet(item_preview_of.get((r.model, r.item_id)))
+            tail = f"  ·  {preview}" if preview else ""
+            return f"{r.item_id}  ·  {metric} {score_s}  ·  {r.model}{tail}"
+
+        item_labels = [_item_label(r) for r in item_scores_df.itertuples()]
+        item_pick = st.selectbox("Item x model", item_labels, key="dash_item_pick")
+        item_row = item_scores_df.iloc[item_labels.index(item_pick)]
+
+        item_detail_raw = item_row.get("detail_json")
+        item_detail = {}
+        if isinstance(item_detail_raw, str) and item_detail_raw:
+            try:
+                item_detail = json.loads(item_detail_raw)
+            except json.JSONDecodeError:
+                item_detail = {}
+
+        item_metric = METRIC_OF.get(item_row["behaviour"], item_row["behaviour"])
+        item_score_val = item_row.get("score")
+        item_score_val = None if item_score_val != item_score_val else item_score_val
+        st.markdown(
+            _hero_html(item_score_val, item_metric, item_row["behaviour"], item_detail.get("errors")),
+            unsafe_allow_html=True,
+        )
+        st.markdown(_badges_html(item_row["behaviour"], item_detail), unsafe_allow_html=True)
+        st.caption(f'{item_row["item_id"]}  ·  seed {item_row.get("seed_id")}  ·  '
+                  f'topic {item_row.get("topic")}  ·  source {item_row.get("source")}')
+
+        if item_raw_df is not None:
+            item_turns = item_raw_df[(item_raw_df["model"] == item_row["model"])
+                                     & (item_raw_df["item_id"] == item_row["item_id"])]
+            if not item_turns.empty:
+                st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                            'Prompts and replies</div>', unsafe_allow_html=True)
+                st.markdown(_conversation_html(item_turns), unsafe_allow_html=True)
+
+        if item_judge_df is not None:
+            item_votes = item_judge_df[(item_judge_df["model"] == item_row["model"])
+                                       & (item_judge_df["item_id"] == item_row["item_id"])]
+            if not item_votes.empty:
+                st.markdown('<div class="ns-eyebrow" style="margin-top:16px;">'
+                            'Judge panel</div>', unsafe_allow_html=True)
+                st.markdown(_judge_cards_html(item_votes), unsafe_allow_html=True)
+                if "prompt" in item_votes.columns:
+                    with st.expander("Grading prompt sent to the judge panel"):
+                        for call in item_votes["call"].unique():
+                            p = item_votes.loc[item_votes["call"] == call, "prompt"].iloc[0]
+                            if isinstance(p, str) and p:
+                                st.markdown(f"**{call}**")
+                                st.text(p)
+    st.divider()
 
 dash_results = st.session_state.get("dash_results")
 if not dash_results:

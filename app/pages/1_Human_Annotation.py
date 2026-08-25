@@ -35,27 +35,45 @@ st.markdown(
 )
 
 dash_results = st.session_state.get("dash_results")
-if not dash_results:
+dash_item_results = st.session_state.get("dash_item_results")
+if not dash_results and not dash_item_results:
     st.markdown(
-        section("No run loaded", "Run a sweep or load results first",
-                "Go to the NepSyc page (sidebar) and either run a sweep or click "
-                "\"Load last results\". This page reads whatever it finds there -- "
-                "it does not run anything itself."),
+        section("No run loaded", "Run a sweep, spot-check an item, or load results first",
+                "Go to the NepSyc page (sidebar) and either run a sweep, run/load a "
+                "\"Spot-check a single item\" result, or click \"Load last results\". "
+                "This page reads whatever it finds there -- it does not run anything itself."),
         unsafe_allow_html=True,
     )
     st.stop()
 
-lang_keys = list(dash_results)
-active_lang = st.session_state.get("dash_lang_view", lang_keys[0])
+# A hand-picked item spot-check is arguably the best fit for this page -- comparing every
+# model's reply to one chosen prompt side by side is exactly what it's for -- so it's offered
+# as an equal source alongside a full sweep, not folded into or hidden behind dash_results.
+source_options = [s for s, present in
+                  [("Full sweep", dash_results), ("Item spot-check", dash_item_results)] if present]
+source = (
+    st.radio("Source", source_options, horizontal=True,
+             help="\"Full sweep\" is a normal multi-item run from the sidebar. \"Item "
+                  "spot-check\" is a hand-picked item id run from the sidebar's \"Spot-check "
+                  "a single item\" panel.")
+    if len(source_options) > 1 else source_options[0]
+)
+if source == "Item spot-check":
+    active_results, lang_view_key = dash_item_results, "dash_item_lang_view"
+else:
+    active_results, lang_view_key = dash_results, "dash_lang_view"
+
+lang_keys = list(active_results)
+active_lang = st.session_state.get(lang_view_key, lang_keys[0])
 if active_lang not in lang_keys:
     active_lang = lang_keys[0]
 if len(lang_keys) > 1:
     active_lang = st.radio(
         "Viewing", lang_keys, index=lang_keys.index(active_lang), horizontal=True,
-        format_func=lambda k: result_label(dash_results[k]["meta"], k),
+        format_func=lambda k: result_label(active_results[k]["meta"], k),
     )
 
-result_state = dash_results[active_lang]
+result_state = active_results[active_lang]
 paths = {k: (Path(v) if v else None) for k, v in result_state["paths"].items()}
 
 scores_df = _read_csv(paths.get("item_scores"))

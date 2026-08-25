@@ -78,6 +78,11 @@ class RunCfg:
     limit_from_end: bool = False
     # ids or labels from target_models; empty = all (same convention as `behaviours` above)
     target_model_ids: List[str] = field(default_factory=list)
+    # Explicit item_ids to run (e.g. "DAS-D013"); empty = no filter. Unlike `behaviours`/
+    # `domains`, a non-empty list here *bypasses* those two filters entirely rather than
+    # combining with them -- an explicit item selection means "run exactly these", not
+    # "these, further narrowed by whatever behaviour/domain happens to be selected".
+    item_ids: List[str] = field(default_factory=list)
 
 
 @dataclass

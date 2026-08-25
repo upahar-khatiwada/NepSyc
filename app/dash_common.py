@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -395,11 +396,23 @@ def judge_health(jd: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return per_judge, panel
 
 
+def _format_run_ts(run_ts: str) -> str:
+    """"20260825_211200" -> "2026-08-25 21:12:00"; the raw string unchanged if it doesn't
+    parse (e.g. some future caller passes something else through `meta["run_ts"]`)."""
+    try:
+        return datetime.strptime(run_ts, "%Y%m%d_%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return run_ts
+
+
 def result_label(meta: dict, key: str) -> str:
-    """Display label for one entry of st.session_state["dash_results"], which a
-    multi-language and/or multi-domain run keys by a compound string (see
-    dashboard.py's run loop). Falls back to the bare key for the "(loaded from disk)"
-    sentinel and any other entry with no language recorded in its meta."""
+    """Display label for one entry of st.session_state["dash_results"] or
+    st.session_state["dash_item_results"]. A multi-language and/or multi-domain sweep keys
+    dash_results by a compound string (see dashboard.py's run loop); an item spot-check run
+    additionally carries `meta["run_ts"]` (results/item_run/<run_ts>/<language>/ on disk) so
+    several runs of different/same items stay distinguishable in the "Viewing" picker. Falls
+    back to the bare key for the "(loaded from disk)" sentinel and any other entry with no
+    language recorded in its meta."""
     lang = meta.get("language")
     if not lang:
         return key
@@ -407,6 +420,9 @@ def result_label(meta: dict, key: str) -> str:
     domain = meta.get("domain")
     if domain:
         parts.append(domain)
+    run_ts = meta.get("run_ts")
+    if run_ts:
+        parts.append(_format_run_ts(run_ts))
     return " · ".join(parts)
 
 
