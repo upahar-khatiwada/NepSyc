@@ -18,7 +18,7 @@ from .judge import JudgePanel
 from .metrics import aggregate, score_item
 from .providers import ResponseCache, build_router
 from .runner import collect
-from .tables import write_csv
+from .tables import write_csv_versioned
 
 ProgressFn = Callable[[float, str], None]
 
@@ -170,7 +170,6 @@ def run_evaluation(
 
     # One row per scored item. `detail_json` holds the behaviour-specific intermediates
     # (per-judge votes, per-turn correctness, rating deltas) that have no fixed schema.
-    scores_path = out_dir / "item_scores.csv"
     fixed = ["model", "behaviour", "metric", "item_id", "seed_id", "topic", "source", "score"]
     rows = []
     for s in scores:
@@ -178,12 +177,16 @@ def run_evaluation(
         row["detail_json"] = json.dumps({k: v for k, v in s.items() if k not in fixed},
                                         ensure_ascii=False, default=str)
         rows.append(row)
-    write_csv(rows, scores_path, fixed + ["detail_json"])
+    # write_csv_versioned also writes a timestamped item_scores_<ts>.csv alongside
+    # item_scores.csv, so a second sweep into the same output_dir doesn't erase the
+    # first sweep's scores -- see confound.py's load_all_languages() docstring for the
+    # exact pain this caused (a `--output-dir`-less CLI run silently clobbering the
+    # previous run's item_scores.csv).
+    scores_path, _ = write_csv_versioned(rows, out_dir, "item_scores", fixed + ["detail_json"])
 
     # One row per individual judge call (one per condition x judge model), so a specific
     # judge can be compared item-by-item against the rest of the panel instead of only
     # via the aggregated mean in summary.json.
-    judge_path = out_dir / "judge_detail.csv"
     judge_cols = ["model", "behaviour", "item_id", "seed_id", "topic", "call",
                   "prompt", "reply", "judge_model", "judge_value", "judge_rationale", "judge_error"]
     judge_rows = []
@@ -204,8 +207,9 @@ def run_evaluation(
                 "judge_rationale": jc.get("rationale"),
                 "judge_error": jc.get("error"),
             })
+    judge_path = None
     if judge_rows:
-        write_csv(judge_rows, judge_path, judge_cols)
+        judge_path, _ = write_csv_versioned(judge_rows, out_dir, "judge_detail", judge_cols)
 
     summary = aggregate(scores)
     summary_path = out_dir / "summary.json"
@@ -231,7 +235,7 @@ def run_evaluation(
             "summary_json": summary_path,
             "item_scores": scores_path,
             "raw_responses": raw_path,
-            "judge_detail": judge_path if judge_rows else None,
+            "judge_detail": judge_path,
             "report_txt": report_path,
         },
     }

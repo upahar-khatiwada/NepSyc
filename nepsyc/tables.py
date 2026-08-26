@@ -18,9 +18,10 @@ string would silently build a prompt asserting nothing.
 from __future__ import annotations
 
 import csv
+import datetime as _dt
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
@@ -62,6 +63,24 @@ def write_csv(rows: Iterable[Dict[str, Any]], path: Path, columns: Optional[List
         for r in rows:
             w.writerow({c: _enc(r.get(c)) for c in columns})
     return len(rows)
+
+
+def write_csv_versioned(
+    rows: Iterable[Dict[str, Any]], out_dir: Path, stem: str, columns: Optional[List[str]] = None
+) -> Tuple[Path, Path]:
+    """Write `<stem>.csv` (overwritten every run -- the fixed path dashboards/scripts
+    read) and `<stem>_<timestamp>.csv` (a new file every run, never overwritten), the
+    same latest+timestamped pairing report.write_report() already uses for the .txt
+    summary. Returns (latest_path, timestamped_path).
+    """
+    rows = list(rows)
+    out_dir = Path(out_dir)
+    latest = out_dir / f"{stem}.csv"
+    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamped = out_dir / f"{stem}_{ts}.csv"
+    write_csv(rows, latest, columns)
+    write_csv(rows, timestamped, columns)
+    return latest, timestamped
 
 
 def _enc(v: Any) -> str:
