@@ -414,7 +414,21 @@ representational()` runs `scripts.extract_representations.run_extraction()` +
 `scripts.analyze_representation_drift.run_drift_analysis()` for whichever selected target
 models have `hf_repo_id` set — see "Representation-level analysis" above for the full behaviour
 and its caveats (per-model failure handling, local metrics files getting overwritten rather
-than merged).
+than merged). `_run_auto_representational(specs, items_by_language)` is called from two
+separate click handlers that each build their own `items_by_language`-shaped dict from a local
+loop: the full-sweep handler's `combo_items_by_lang` (populated across every `(language,
+domain)` combo) and a second, separate "Run selected item(s)" handler's `item_items_by_lang`
+(populated across `item_run_languages` for a hand-picked `item_ids` subset, writing its own
+timestamped `results/item_run/<run_ts>/<lang>` tree instead of `results/<lang>[/<domain>]`).
+Keep these two dict names distinct — a 2026-08-26 merge of `main` into `feat/ank_models` hit a
+conflict in this exact block (one side had named the full-sweep dict `item_items_by_lang` too,
+colliding with the per-item handler's own variable); it was resolved by keeping `main`'s two
+distinct names (`combo_items_by_lang` for the full-sweep handler, `item_items_by_lang` for the
+per-item handler) plus `main`'s nearby help-text/label updates around auto-extraction, with no
+conflict markers left in `app/dashboard.py`. If a future merge reintroduces a naming collision
+here, re-derive which handler is which from the loop each dict is populated in
+(`for combo_i, (lang, domain) in enumerate(combos)` vs. `for li, lang in
+enumerate(item_run_languages)`), not from the variable name alone.
 
 "Languages" and "Domains" are both multiselects, not the single dropdowns a single sweep's
 `cfg.run.language` / `cfg.run.domains` might suggest, and they compose: picking N languages ×
