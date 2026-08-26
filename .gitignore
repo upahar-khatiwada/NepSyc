@@ -3,6 +3,7 @@ __pycache__/
 .cache/
 .env
 results/
+data/representation/metrics/
 
 outputs/
 plots/

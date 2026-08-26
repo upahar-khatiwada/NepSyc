@@ -376,16 +376,17 @@ failure (OOM, a checkpoint too large for this machine — e.g. GPT-OSS-20B/120B 
 `config.yaml` comments — a network error fetching the weights) per model rather than letting it
 abort the rest, since the dashboard may hand it several models unattended; failures land in the
 returned `model_errors` list and are shown as `st.warning`s rather than crashing the app.
-Because `run_drift_analysis()` regenerates `data/representation/metrics/*.csv` from whatever
-`results/representations/index.csv` exists locally (gitignored) rather than merging with the
-previously-committed version, running this against a fresh clone whose `index.csv` doesn't yet
-include a previously-extracted model (e.g. the committed metrics' `Qwen2.5-1.5B` numbers, from a
-prior extraction run on a different machine) will locally overwrite those committed CSVs to
-contain only the model(s) just re-extracted, until that other model is re-extracted too —
-`data/representation/` (unlike `results/`) is git-tracked on purpose (the neutral-pair pool and
-these aggregate metrics are meant to be shared via clone; only the raw per-model tensors under
-`results/representations/` are gitignored for size), so this shows up as a normal working-tree
-diff on those files after any live sweep with auto-extraction on, not a bug.
+`data/representation/metrics/` (unlike the rest of `data/representation/`) is gitignored, not
+committed: `run_drift_analysis()` regenerates `data/representation/metrics/*.csv` from whatever
+`results/representations/index.csv` exists locally (also gitignored) rather than merging with
+any previously-committed version, so on a fresh clone whose `index.csv` doesn't yet include a
+previously-extracted model, those files would locally overwrite to contain only the model(s)
+just re-extracted, until that other model is re-extracted too -- which produced spurious
+working-tree diffs/conflicts on every push. `data/representation/`'s other files (the
+neutral-pair pool: `neutral_{en,ne,ne_rom}.csv`, `pairs_manifest.csv`) stay git-tracked on
+purpose, meant to be shared via clone; only `metrics/` (regenerate-per-machine, like
+`results/representations/`) and the raw per-model tensors under `results/representations/` are
+gitignored.
 
 ### Dashboard (`app/dashboard.py`) — entry point, sidebar, Status/Prompt inspector
 
