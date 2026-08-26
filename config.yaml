@@ -235,12 +235,7 @@ judges:
   models:
     - openai/gpt-oss-120b
     - qwen/qwen3.6-27b
-
-  # <<< EDIT #2 --------------------------------------------------------------
-  # These three ids are Groq ids, so this must say `groq`.
-  #
-  # NO GROQ KEY? Then swap in one of the fallbacks below -- the model ids have
-  # to match wherever you send them.
+    - openai/gpt-oss-20b
   provider: groq
   # --------------------------------------------------------------------------
 

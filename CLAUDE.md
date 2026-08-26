@@ -376,16 +376,17 @@ failure (OOM, a checkpoint too large for this machine — e.g. GPT-OSS-20B/120B 
 `config.yaml` comments — a network error fetching the weights) per model rather than letting it
 abort the rest, since the dashboard may hand it several models unattended; failures land in the
 returned `model_errors` list and are shown as `st.warning`s rather than crashing the app.
-Because `run_drift_analysis()` regenerates `data/representation/metrics/*.csv` from whatever
-`results/representations/index.csv` exists locally (gitignored) rather than merging with the
-previously-committed version, running this against a fresh clone whose `index.csv` doesn't yet
-include a previously-extracted model (e.g. the committed metrics' `Qwen2.5-1.5B` numbers, from a
-prior extraction run on a different machine) will locally overwrite those committed CSVs to
-contain only the model(s) just re-extracted, until that other model is re-extracted too —
-`data/representation/` (unlike `results/`) is git-tracked on purpose (the neutral-pair pool and
-these aggregate metrics are meant to be shared via clone; only the raw per-model tensors under
-`results/representations/` are gitignored for size), so this shows up as a normal working-tree
-diff on those files after any live sweep with auto-extraction on, not a bug.
+`data/representation/metrics/` (unlike the rest of `data/representation/`) is gitignored, not
+committed: `run_drift_analysis()` regenerates `data/representation/metrics/*.csv` from whatever
+`results/representations/index.csv` exists locally (also gitignored) rather than merging with
+any previously-committed version, so on a fresh clone whose `index.csv` doesn't yet include a
+previously-extracted model, those files would locally overwrite to contain only the model(s)
+just re-extracted, until that other model is re-extracted too -- which produced spurious
+working-tree diffs/conflicts on every push. `data/representation/`'s other files (the
+neutral-pair pool: `neutral_{en,ne,ne_rom}.csv`, `pairs_manifest.csv`) stay git-tracked on
+purpose, meant to be shared via clone; only `metrics/` (regenerate-per-machine, like
+`results/representations/`) and the raw per-model tensors under `results/representations/` are
+gitignored.
 
 ### Dashboard (`app/dashboard.py`) — entry point, sidebar, Status/Prompt inspector
 
@@ -413,7 +414,21 @@ representational()` runs `scripts.extract_representations.run_extraction()` +
 `scripts.analyze_representation_drift.run_drift_analysis()` for whichever selected target
 models have `hf_repo_id` set — see "Representation-level analysis" above for the full behaviour
 and its caveats (per-model failure handling, local metrics files getting overwritten rather
-than merged).
+than merged). `_run_auto_representational(specs, items_by_language)` is called from two
+separate click handlers that each build their own `items_by_language`-shaped dict from a local
+loop: the full-sweep handler's `combo_items_by_lang` (populated across every `(language,
+domain)` combo) and a second, separate "Run selected item(s)" handler's `item_items_by_lang`
+(populated across `item_run_languages` for a hand-picked `item_ids` subset, writing its own
+timestamped `results/item_run/<run_ts>/<lang>` tree instead of `results/<lang>[/<domain>]`).
+Keep these two dict names distinct — a 2026-08-26 merge of `main` into `feat/ank_models` hit a
+conflict in this exact block (one side had named the full-sweep dict `item_items_by_lang` too,
+colliding with the per-item handler's own variable); it was resolved by keeping `main`'s two
+distinct names (`combo_items_by_lang` for the full-sweep handler, `item_items_by_lang` for the
+per-item handler) plus `main`'s nearby help-text/label updates around auto-extraction, with no
+conflict markers left in `app/dashboard.py`. If a future merge reintroduces a naming collision
+here, re-derive which handler is which from the loop each dict is populated in
+(`for combo_i, (lang, domain) in enumerate(combos)` vs. `for li, lang in
+enumerate(item_run_languages)`), not from the variable name alone.
 
 "Languages" and "Domains" are both multiselects, not the single dropdowns a single sweep's
 `cfg.run.language` / `cfg.run.domains` might suggest, and they compose: picking N languages ×
