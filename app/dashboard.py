@@ -559,6 +559,9 @@ def _run_auto_representational(specs: list, items_by_language: dict) -> None:
         st.success("Extracted representations for: " + ", ".join(ok_labels))
     if meta.get("skipped"):
         st.caption(f"{len(meta['skipped'])} item/condition(s) skipped during extraction (see terminal log).")
+    if meta.get("resumed"):
+        st.caption(f"{len(meta['resumed'])} item/variant(s) already had tensors.npz on disk and were "
+                   "reused rather than re-extracted.")
 
     try:
         _, _, drift_summary = run_drift_analysis()
@@ -728,21 +731,22 @@ repr_eligible_specs = [t for t in cfg.target_models if t.hf_repo_id]
 repr_eligible_selected = [t for t in repr_eligible_specs if t.label in selected_target_labels]
 auto_repr = st.sidebar.toggle(
     "Auto-extract after the sweep", value=True, disabled=mock_mode,
-    help="After a live (non-mock) sweep, loads real weights locally for any selected target "
-         "model that has hf_repo_id set in config.yaml -- the open-weight models served via "
-         "the groq or local provider -- and extracts sycophantic-vs-neutral hidden states for "
-         "exactly the items that sweep just scored (same item_ids, not a separately reselected "
-         "slice), so they show up on the Representational Learning page. Disabled in Mock "
-         "mode: extraction always loads real weights, mock or not, so it has nothing to "
-         "smoke-test.",
+    help="After a live (non-mock) run -- either \"Run benchmark\" or the \"Spot-check a single "
+         "item\" panel above -- loads real weights locally for any selected target model that "
+         "has hf_repo_id set in config.yaml -- the open-weight models served via the groq or "
+         "local provider -- and extracts sycophantic-vs-neutral hidden states for exactly the "
+         "items that run just scored (same item_ids, not a separately reselected slice), so "
+         "they show up on the Representational Learning page. Disabled in Mock mode: "
+         "extraction always loads real weights, mock or not, so it has nothing to smoke-test.",
 )
 if mock_mode:
     st.sidebar.caption("Turn off Mock mode to enable auto-extraction.")
 elif repr_eligible_selected:
     st.sidebar.caption(
         "Eligible among selected targets: " + ", ".join(t.label for t in repr_eligible_selected)
-        + ". Extracts the same items the sweep above scores, so its cost follows Items per "
-          "behaviour / Full data above -- lower that if extraction is too slow. Loading real "
+        + ". Extracts the same items whichever run above scores -- a full sweep's cost follows "
+          "Items per behaviour / Full data above (lower that if extraction is too slow), an "
+          "item spot-check extracts just the item(s) picked there. Loading real "
           "weights can take minutes per model and needs local disk/RAM -- a checkpoint too "
           "large for this machine (see config.yaml's comments on GPT-OSS-20B/120B) is skipped "
           "with an error shown, not a crash."
@@ -902,8 +906,8 @@ if item_run_clicked:
         item_results_by_lang: dict[str, dict] = {}
         item_errors_by_lang: dict[str, str] = {}
         # Items actually scored this item-run, per language -- fed to auto-extraction below,
-        # same reasoning as combo_items_by_lang in the full-sweep branch above.
-        item_items_by_lang: dict[str, list] = {}
+        # same convention as combo_items_by_lang in the full-sweep branch above.
+        item_combo_items_by_lang: dict[str, list] = {}
         # One timestamp for the whole click, shared across every language it runs -- so a
         # single "Run selected item(s)" click groups under one results/item_run/<run_ts>/
         # folder, and a later click gets its own, never overwriting this one.
@@ -946,7 +950,7 @@ if item_run_clicked:
                              "run_ts": run_ts, "item_ids": selected_item_ids,
                              "n_items": len(result["items"]), "mock": mock_mode},
                 }
-                item_items_by_lang.setdefault(lang, []).extend(result["items"])
+                item_combo_items_by_lang.setdefault(lang, []).extend(result["items"])
 
         item_progress.empty()
         for lang, msg in item_errors_by_lang.items():
@@ -955,8 +959,8 @@ if item_run_clicked:
             st.session_state["dash_item_results"] = item_results_by_lang
             st.session_state["dash_item_lang_view"] = next(iter(item_results_by_lang))
 
-        if not mock_mode and auto_repr and repr_eligible_selected and item_items_by_lang:
-            _run_auto_representational(repr_eligible_selected, item_items_by_lang)
+        if not mock_mode and auto_repr and repr_eligible_selected and item_combo_items_by_lang:
+            _run_auto_representational(repr_eligible_selected, item_combo_items_by_lang)
 
 if load_clicked:
     loaded_results_by_key: dict[str, dict] = {}

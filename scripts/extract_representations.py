@@ -41,7 +41,11 @@ results/representations/ (gitignored, like the rest of results/):
 --dry-run lists exactly what would be extracted (model x pair x variant x language
 counts) with no model load and no torch/transformers import. --limit N keeps each
 behaviour's first N items (same "per behaviour, not total" convention as run.py evaluate
---limit-per-behaviour).
+--limit-per-behaviour). Resumable: a (model, pair, variant) whose tensors.npz already exists
+is skipped rather than re-extracted, so killing a run and re-invoking the same command picks
+up where it left off instead of reloading the model and redoing everything -- pass --force to
+always re-extract regardless (needed after changing --attn-layers/--max-new-tokens/
+--max-input-tokens, since those aren't part of the skip check).
 """
 from __future__ import annotations
 
@@ -182,6 +186,7 @@ def run_extraction(
     max_new_tokens: int = 120,
     max_input_tokens: int = 4096,
     device: Optional[str] = None,
+    force: bool = False,
     progress: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Does the actual extraction for `selected` models -- the callable core behind `main()`,
@@ -210,6 +215,16 @@ def run_extraction(
     `progress`, if given, is called with a short human-readable string at coarse milestones
     (model load start, per-language item count, per-model failure) -- independent of the
     print()s below, which always fire for terminal use regardless of whether `progress` is set.
+
+    Resumable like the sycophancy sweep's ResponseCache, but at (model, language, pair_id,
+    variant) granularity rather than per-turn: before running the (expensive -- a full model
+    forward pass per turn) extraction for a variant, checks whether its tensors.npz already
+    exists on disk and skips straight to the next variant if so, recording it in the returned
+    `resumed` list. This is what lets a killed-and-restarted extraction (e.g. the dashboard's
+    auto-extract after an interrupted sweep or item spot-check) pick back up instead of
+    reloading the model and redoing every item from scratch. Pass `force=True` to bypass this
+    and always re-extract (e.g. after changing --attn-layers/--max-new-tokens/--max-input-tokens,
+    which are not part of the skip check).
     """
     from nepsyc.representation import _resolve_attn_layers, load_model  # torch-touching imports, kept lazy
 
@@ -227,12 +242,12 @@ def run_extraction(
         "run_id": run_id, "started_at": run_started,
         "args": {"models": [m.label for m in selected], "languages": languages, "behaviours": behaviours,
                  "limit": limit, "attn_layers": attn_layers, "max_new_tokens": max_new_tokens,
-                 "max_input_tokens": max_input_tokens, "device": device},
+                 "max_input_tokens": max_input_tokens, "device": device, "force": force},
         "pooling": POOLING_DESCRIPTION,
         "attn_layer_offset_note": "attn layer index i is the i-th transformer block's output "
                                    "(0-based); hidden_states/last_token/mean_pooled layer index "
                                    "is offset by +1 relative to that (index 0 = embedding layer).",
-        "models": [], "skipped": [], "model_errors": [],
+        "models": [], "skipped": [], "resumed": [], "model_errors": [],
     }
 
     for spec in selected:
@@ -285,6 +300,12 @@ def run_extraction(
                 for it in items:
                     pair_id, behaviour, domain = it["item_id"], it["behaviour"], it["domain"]
                     for variant, cond_name, turns, is_proxy in _item_variants(it, language, raw_index):
+                        out_dir = _pair_dir(spec.label, behaviour, domain, language, pair_id, variant)
+                        if not force and (out_dir / "tensors.npz").exists():
+                            print(f"    {pair_id}/{variant}: already extracted -- skipping (force=True / --force to redo)")
+                            run_meta["resumed"].append({"model": spec.label, "language": language,
+                                                         "pair_id": pair_id, "variant": variant})
+                            continue
                         try:
                             turn_reps, resolved_device = run_condition_full(
                                 tokenizer, model, resolved_device, cond_name, turns,
@@ -296,7 +317,6 @@ def run_extraction(
                                                          "pair_id": pair_id, "variant": variant, "error": str(e)})
                             continue
 
-                        out_dir = _pair_dir(spec.label, behaviour, domain, language, pair_id, variant)
                         out_dir.mkdir(parents=True, exist_ok=True)
                         tensors: Dict[str, np.ndarray] = {}
                         meta_turns = []
@@ -394,6 +414,10 @@ def main() -> None:
     ap.add_argument("--max-new-tokens", type=int, default=120)
     ap.add_argument("--max-input-tokens", type=int, default=4096, help="Left-truncate prompts longer than this.")
     ap.add_argument("--device", default=None, help="Default: cuda if available, else cpu.")
+    ap.add_argument("--force", action="store_true", help="Re-extract every selected item/variant "
+                    "even if its tensors.npz already exists on disk. Default: skip anything "
+                    "already extracted, so an interrupted run can be resumed by re-running the "
+                    "same command.")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -406,7 +430,7 @@ def main() -> None:
     run_extraction(
         selected, languages=args.language, behaviours=args.behaviour, limit=args.limit,
         attn_layers=args.attn_layers, max_new_tokens=args.max_new_tokens,
-        max_input_tokens=args.max_input_tokens, device=args.device,
+        max_input_tokens=args.max_input_tokens, device=args.device, force=args.force,
     )
 
 
