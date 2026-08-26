@@ -5,6 +5,7 @@ in-process and get results back as a dict instead of only as files on disk.
 from __future__ import annotations
 
 import json
+import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -219,7 +220,14 @@ def run_evaluation(
     text = report.build_report(cfg, items, scores, summary,
                                human_file=_resolve(human_file) if human_file else None)
     report_path = report.write_report(text, out_dir)
-    print(text)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        # Some consoles (e.g. Windows cp1252) can't encode Devanagari report content
+        # (ne item topics/excerpts). The file was already written as UTF-8 above --
+        # this only degrades the terminal echo, never the saved report.
+        enc = sys.stdout.encoding or "utf-8"
+        print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
     print(f"\nsummary  -> {report_path}")
     print(f"scores   -> {scores_path}")
     if judge_rows:
