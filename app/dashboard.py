@@ -499,25 +499,26 @@ def _discover_result_summaries() -> dict[str, Path]:
     return found
 
 
-def _result_key_label(key: str, available_domains: list[str]) -> str:
-    """Friendly label for a _discover_result_summaries() key, e.g. "English (en) . education"
-    for a sweep, or "Item spot-check . English (en) . 2026-08-25 21:12:00" for a
-    results/item_run/<run_ts>/<language> entry -- so the "Result(s) to load" picker reads the
-    same way before anything is loaded as result_label() renders it after."""
+def _result_key_label(key: str) -> str:
+    """Friendly label for a _discover_result_summaries() key, e.g.
+    "Item spot-check . English (en) . 2026-08-25 21:12:00" for a
+    results/item_run/<run_ts>/<language> entry, or -- for every other summary.json found
+    anywhere under results/, however deeply nested and whatever its folders are named --
+    the full path relative to results/ with "/" replaced by "." (e.g.
+    results/delusion/ne/education/summary.json -> "delusion.ne.education",
+    results/delusion/ne/education_1/summary.json -> "delusion.ne.education_1"). Deliberately
+    literal rather than guessing which segment is a language or domain: a sidebar-written
+    sweep's own <lang>/<domain> folders already read fine this way, and unlike the old
+    lang/domain-sniffing heuristic this can't collide two different folders (e.g. an
+    unrecognized "education_1" domain, or a hand-organized top-level folder) into the same
+    label."""
     if key == "(root)":
         return "(root)"
     parts = key.split("/")
     if parts[0] == "item_run" and len(parts) == 3:
         _, run_ts, lang = parts
         return f"Item spot-check · {LANGUAGE_LABELS.get(lang, lang)} ({lang}) · {_format_run_ts(run_ts)}"
-    lang = next((p for p in parts if p in LANGUAGES), None)
-    domain = next((p for p in parts if p in available_domains), None)
-    labels = []
-    if lang:
-        labels.append(f"{LANGUAGE_LABELS.get(lang, lang)} ({lang})")
-    if domain:
-        labels.append(domain)
-    return " · ".join(labels) if labels else key
+    return ".".join(parts)
 
 
 def _run_auto_representational(specs: list, items_by_language: dict) -> None:
@@ -760,7 +761,7 @@ st.sidebar.divider()
 existing_summaries = _discover_result_summaries()
 selected_load_keys = st.sidebar.multiselect(
     "Result(s) to load", list(existing_summaries), default=list(existing_summaries),
-    format_func=lambda k: _result_key_label(k, available_domains), disabled=not existing_summaries,
+    format_func=_result_key_label, disabled=not existing_summaries,
     help="Which results/.../summary.json file(s) to load from disk, without re-running -- "
          "a multi-language/multi-domain sweep writes one per results/<lang>/<domain> combo, "
          "not just the plain results/summary.json. Defaults to all of them; narrow this to "
